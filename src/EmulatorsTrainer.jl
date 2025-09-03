@@ -1,6 +1,7 @@
 module EmulatorsTrainer
 
 using DataFrames
+using DataFrames: AbstractDataFrame
 using Dates
 using Distributions
 using Distributed

@@ -24,7 +24,7 @@ function create_training_dataset(n::Int, lb::Array, ub::Array)
     return QuasiMonteCarlo.sample(n, lb, ub, LatinHypercubeSample())
 end
 
-function create_training_dict(training_matrix::Matrix, idx_comb::Int, params::Array{String})
+function create_training_dict(training_matrix::Matrix, idx_comb::Int, params::Vector{String})
     return Dict([(value, training_matrix[idx_par, idx_comb])
     for (idx_par, value) in enumerate(params)])
 end
@@ -79,7 +79,13 @@ function prepare_dataset_directory(root_dir::String; force::Bool=false)
     return root_dir
 end
 
-function compute_dataset(training_matrix::Matrix, params::Array{String}, root_dir::String, script_func::Function; force::Bool=false)
+"""
+    compute_dataset(training_matrix, params, root_dir, script_func; force=false)
+
+Compute dataset using distributed processing with optional force override.
+"""
+function compute_dataset(training_matrix::AbstractMatrix, params::AbstractVector{String}, 
+                        root_dir::String, script_func::Function; force::Bool=false)
     n_pars, n_combs = size(training_matrix)
     
     # Input validation
@@ -119,7 +125,3 @@ function compute_dataset(training_matrix::Matrix, params::Array{String}, root_di
     return actual_dir
 end
 
-# Keep original function signature for backward compatibility
-function compute_dataset(training_matrix::Matrix, params::Array{String}, root_dir::String, script_func::Function)
-    compute_dataset(training_matrix, params, root_dir, script_func; force=false)
-end
