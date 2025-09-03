@@ -3,6 +3,7 @@
 | **Documentation** | **Code style** |
 |:--------:|:----------------:|
 | [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://cosmologicalemulators.github.io/EmulatorsTrainer.jl/dev) [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://cosmologicalemulators.github.io/EmulatorsTrainer.jl/stable) | [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/invenia/BlueStyle) [![ColPrac: Contributor's Guide on Collaborative Practices for Community Packages](https://img.shields.io/badge/ColPrac-Contributor's%20Guide-blueviolet)](https://github.com/SciML/ColPrac) |
+[![codecov](https://codecov.io/github/CosmologicalEmulators/EmulatorsTrainer.jl/graph/badge.svg?token=7IPK963YOW)](https://codecov.io/github/CosmologicalEmulators/EmulatorsTrainer.jl)
 
 This repository contains code used to perform the training of the CosmologicalEmulators organization surrogate models.
 
