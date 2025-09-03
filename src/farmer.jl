@@ -7,11 +7,71 @@ function create_training_dict(training_matrix::Matrix, idx_comb::Int, params::Ar
     for (idx_par, value) in enumerate(params)])
 end
 
-function compute_dataset(training_matrix::Matrix, params::Array{String}, root_dir::String, script_func::Function)
+"""
+    prepare_dataset_directory(root_dir::String; force::Bool=false)
+
+Safely create a dataset directory with existence checking and metadata tracking.
+
+# Arguments
+- `root_dir::String`: Path to the dataset directory
+- `force::Bool=false`: If true, backs up existing directory; if false, throws error
+"""
+function prepare_dataset_directory(root_dir::String; force::Bool=false)
+    if isdir(root_dir)
+        if force
+            # Create timestamped backup
+            timestamp = Dates.format(now(), "yyyymmdd_HHMMSS")
+            backup_dir = root_dir * "_backup_" * timestamp
+            @warn "Directory exists. Creating backup before proceeding" existing=root_dir backup=backup_dir
+            mv(root_dir, backup_dir)
+            mkdir(root_dir)
+        else
+            error("""
+                  Dataset directory already exists: $root_dir
+                  
+                  This safety check prevents accidentally mixing datasets from different runs.
+                  
+                  Options:
+                  1. Choose a different directory name
+                  2. Delete the existing directory manually if you're sure: rm("$root_dir", recursive=true)
+                  3. Call with force=true to automatically backup existing data
+                  
+                  Existing directory created: $(stat(root_dir).mtime)
+                  """)
+        end
+    else
+        mkdir(root_dir)
+    end
+    
+    # Create metadata file to track dataset generation
+    metadata = Dict(
+        "created_at" => now(),
+        "julia_version" => string(VERSION)
+    )
+    
+    metadata_path = joinpath(root_dir, ".dataset_metadata.json")
+    open(metadata_path, "w") do io
+        JSON3.write(io, metadata)
+    end
+    
+    return root_dir
+end
+
+function compute_dataset(training_matrix::Matrix, params::Array{String}, root_dir::String, script_func::Function; force::Bool=false)
     n_pars, n_combs = size(training_matrix)
-    mkdir(root_dir)
+    
+    # Safely prepare directory
+    actual_dir = prepare_dataset_directory(root_dir; force=force)
+    
     @sync @distributed for idx in 1:n_combs
         train_dict = create_training_dict(training_matrix, idx, params)
-        script_func(train_dict, root_dir)
+        script_func(train_dict, actual_dir)
     end
+    
+    return actual_dir
+end
+
+# Keep original function signature for backward compatibility
+function compute_dataset(training_matrix::Matrix, params::Array{String}, root_dir::String, script_func::Function)
+    compute_dataset(training_matrix, params, root_dir, script_func; force=false)
 end
