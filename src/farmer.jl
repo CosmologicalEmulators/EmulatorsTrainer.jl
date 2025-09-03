@@ -1,4 +1,26 @@
 function create_training_dataset(n::Int, lb::Array, ub::Array)
+    # Input validation
+    if n <= 0
+        throw(ArgumentError("Number of samples must be positive, got n=$n"))
+    end
+    
+    if length(lb) != length(ub)
+        throw(ArgumentError("Lower and upper bounds must have same length. Got length(lb)=$(length(lb)), length(ub)=$(length(ub))"))
+    end
+    
+    if isempty(lb)
+        throw(ArgumentError("Bounds arrays cannot be empty"))
+    end
+    
+    for i in 1:length(lb)
+        if lb[i] >= ub[i]
+            throw(ArgumentError("Lower bound must be less than upper bound for parameter $i. Got lb[$i]=$(lb[i]) >= ub[$i]=$(ub[i])"))
+        end
+        if !isfinite(lb[i]) || !isfinite(ub[i])
+            throw(ArgumentError("Bounds must be finite. Got lb[$i]=$(lb[i]), ub[$i]=$(ub[i])"))
+        end
+    end
+    
     return QuasiMonteCarlo.sample(n, lb, ub, LatinHypercubeSample())
 end
 
@@ -59,6 +81,32 @@ end
 
 function compute_dataset(training_matrix::Matrix, params::Array{String}, root_dir::String, script_func::Function; force::Bool=false)
     n_pars, n_combs = size(training_matrix)
+    
+    # Input validation
+    if n_pars != length(params)
+        throw(ArgumentError("Number of parameters ($(length(params))) must match rows in training_matrix ($n_pars)"))
+    end
+    
+    if n_combs == 0
+        throw(ArgumentError("Training matrix must have at least one combination (column)"))
+    end
+    
+    if isempty(params)
+        throw(ArgumentError("Parameter names array cannot be empty"))
+    end
+    
+    if any(isempty, params)
+        throw(ArgumentError("Parameter names cannot be empty strings"))
+    end
+    
+    if length(unique(params)) != length(params)
+        throw(ArgumentError("Parameter names must be unique. Found duplicates in: $params"))
+    end
+    
+    # Check for non-finite values in training matrix
+    if any(!isfinite, training_matrix)
+        throw(ArgumentError("Training matrix contains non-finite values (NaN or Inf)"))
+    end
     
     # Safely prepare directory
     actual_dir = prepare_dataset_directory(root_dir; force=force)
