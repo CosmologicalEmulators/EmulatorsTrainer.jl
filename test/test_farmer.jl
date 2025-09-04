@@ -161,41 +161,41 @@ using Random
             # Test parameter count mismatch
             wrong_params = ["a", "b", "c"]
             @test_throws ArgumentError EmulatorsTrainer.compute_dataset(
-                training_matrix, wrong_params, joinpath(test_dir, "test1"), dummy_func
+                training_matrix, wrong_params, joinpath(test_dir, "test1"), dummy_func, :serial
             )
             
             # Test empty combinations
             empty_matrix = zeros(2, 0)
             @test_throws ArgumentError EmulatorsTrainer.compute_dataset(
-                empty_matrix, params, joinpath(test_dir, "test2"), dummy_func
+                empty_matrix, params, joinpath(test_dir, "test2"), dummy_func, :serial
             )
             
             # Test empty parameter names
             @test_throws ArgumentError EmulatorsTrainer.compute_dataset(
-                training_matrix, String[], joinpath(test_dir, "test3"), dummy_func
+                training_matrix, String[], joinpath(test_dir, "test3"), dummy_func, :serial
             )
             
             # Test empty string in parameter names
             params_with_empty = ["a", ""]
             @test_throws ArgumentError EmulatorsTrainer.compute_dataset(
-                training_matrix, params_with_empty, joinpath(test_dir, "test4"), dummy_func
+                training_matrix, params_with_empty, joinpath(test_dir, "test4"), dummy_func, :serial
             )
             
             # Test duplicate parameter names
             duplicate_params = ["a", "a"]
             @test_throws ArgumentError EmulatorsTrainer.compute_dataset(
-                training_matrix, duplicate_params, joinpath(test_dir, "test5"), dummy_func
+                training_matrix, duplicate_params, joinpath(test_dir, "test5"), dummy_func, :serial
             )
             
             # Test non-finite values in matrix
             matrix_with_nan = [1.0 NaN; 3.0 4.0]
             @test_throws ArgumentError EmulatorsTrainer.compute_dataset(
-                matrix_with_nan, params, joinpath(test_dir, "test6"), dummy_func
+                matrix_with_nan, params, joinpath(test_dir, "test6"), dummy_func, :serial
             )
             
             matrix_with_inf = [1.0 2.0; Inf 4.0]
             @test_throws ArgumentError EmulatorsTrainer.compute_dataset(
-                matrix_with_inf, params, joinpath(test_dir, "test7"), dummy_func
+                matrix_with_inf, params, joinpath(test_dir, "test7"), dummy_func, :serial
             )
         end
         
@@ -224,7 +224,7 @@ using Random
             
             # Run compute_dataset
             result_dir = EmulatorsTrainer.compute_dataset(
-                training_matrix, params, output_dir, test_script
+                training_matrix, params, output_dir, test_script, :serial
             )
             
             # Verify directory was created
@@ -248,13 +248,13 @@ using Random
             
             # This should work without the force parameter (defaults to false)
             result = EmulatorsTrainer.compute_dataset(
-                training_matrix, params, output_dir, dummy_func
+                training_matrix, params, output_dir, dummy_func, :serial
             )
             @test isdir(output_dir)
             
             # Should error when called again without force
             @test_throws ErrorException EmulatorsTrainer.compute_dataset(
-                training_matrix, params, output_dir, dummy_func
+                training_matrix, params, output_dir, dummy_func, :serial
             )
         end
         
