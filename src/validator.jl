@@ -1,3 +1,22 @@
+"""
+    evaluate_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
+                      get_ground_truth::Function, get_emu_prediction::Function;
+                      get_σ::Union{Function,Nothing}=nothing)
+
+Compute residuals between ground truth and emulator predictions.
+Automatically detects the number of validation samples and output features.
+
+# Arguments
+- `Directory::String`: Root directory containing validation data
+- `dict_file::String`: Name of the parameter JSON file to search for
+- `pars_array::Vector{String}`: Parameter names to extract
+- `get_ground_truth::Function`: Function to load ground truth data
+- `get_emu_prediction::Function`: Function to get emulator prediction
+- `get_σ::Union{Function,Nothing}=nothing`: Optional function to get uncertainties
+
+# Returns
+- `Matrix{Float64}`: Residuals matrix (n_samples × n_output_features)
+"""
 function evaluate_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
     get_ground_truth::Function, get_emu_prediction::Function; get_σ::Union{Function,Nothing}=nothing)
     # Input validation
@@ -83,6 +102,27 @@ function evaluate_residuals(Directory::String, dict_file::String, pars_array::Ve
     return my_values
 end
 
+"""
+    evaluate_sorted_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
+                            get_ground_truth::Function, get_emu_prediction::Function;
+                            get_σ::Union{Function,Nothing}=nothing, 
+                            percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
+
+Compute sorted residuals at specified percentiles.
+Automatically detects number of samples and output features.
+
+# Arguments
+- `Directory::String`: Root directory with validation data
+- `dict_file::String`: Name of parameter JSON file  
+- `pars_array::Vector{String}`: Parameter names to extract
+- `get_ground_truth::Function`: Function to load ground truth
+- `get_emu_prediction::Function`: Function to get emulator prediction
+- `get_σ::Union{Function,Nothing}=nothing`: Optional function for uncertainties
+- `percentiles::Vector{Float64}=[68.0, 95.0, 99.7]`: Percentiles to compute
+
+# Returns
+- `Matrix{Float64}`: Sorted residuals (n_percentiles × n_features)
+"""
 function evaluate_sorted_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
     get_ground_truth::Function, get_emu_prediction::Function; 
     get_σ::Union{Function,Nothing}=nothing, percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
@@ -91,6 +131,20 @@ function evaluate_sorted_residuals(Directory::String, dict_file::String, pars_ar
     return sort_residuals(residuals; percentiles=percentiles)
 end
 
+"""
+    sort_residuals(residuals::AbstractMatrix{<:Real};
+                  percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
+
+Sort residuals and extract specified percentiles.
+Automatically detects dimensions from input matrix.
+
+# Arguments
+- `residuals::AbstractMatrix{<:Real}`: Residuals matrix
+- `percentiles::Vector{Float64}=[68.0, 95.0, 99.7]`: Percentiles to extract
+
+# Returns
+- `Matrix{Float64}`: Percentiles matrix (n_percentiles × n_features)
+"""
 function sort_residuals(residuals::AbstractMatrix{<:Real};
     percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
     # Get dimensions from the residuals matrix
@@ -130,6 +184,23 @@ function sort_residuals(residuals::AbstractMatrix{<:Real};
 end
 
 
+"""
+    get_single_residuals(location::String, dict_file::String, pars_array::Vector{String},
+                        get_ground_truth::Function, get_emu_prediction::Function, get_σ::Function)
+
+Compute residuals for a single validation sample with uncertainties.
+
+# Arguments
+- `location::String`: Directory containing validation files
+- `dict_file::String`: Parameter JSON file name
+- `pars_array::Vector{String}`: Parameter names to extract
+- `get_ground_truth::Function`: Function to load ground truth
+- `get_emu_prediction::Function`: Function to get emulator prediction
+- `get_σ::Function`: Function to get uncertainties
+
+# Returns
+- `Vector{Float64}`: Normalized residuals
+"""
 function get_single_residuals(location::String, dict_file::String, pars_array::Vector{String},
     get_ground_truth::Function, get_emu_prediction::Function, get_σ::Function)
     # Input validation
@@ -179,6 +250,22 @@ function get_single_residuals(location::String, dict_file::String, pars_array::V
     end
 end
 
+"""
+    get_single_residuals(location::String, dict_file::String, pars_array::Vector{String},
+                        get_ground_truth::Function, get_emu_prediction::Function)
+
+Compute residuals for a single validation sample.
+
+# Arguments
+- `location::String`: Directory containing validation files
+- `dict_file::String`: Parameter JSON file name
+- `pars_array::Vector{String}`: Parameter names to extract
+- `get_ground_truth::Function`: Function to load ground truth
+- `get_emu_prediction::Function`: Function to get emulator prediction
+
+# Returns
+- `Vector{Float64}`: Absolute relative residuals
+"""
 function get_single_residuals(location::String, dict_file::String, pars_array::Vector{String},
     get_ground_truth::Function, get_emu_prediction::Function)
     # Input validation

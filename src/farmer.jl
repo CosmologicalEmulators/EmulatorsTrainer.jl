@@ -1,3 +1,23 @@
+"""
+    create_training_dataset(n::Int, lb::Array, ub::Array)
+
+Generate quasi-Monte Carlo samples using Latin Hypercube Sampling.
+
+# Arguments
+- `n::Int`: Number of samples to generate
+- `lb::Array`: Lower bounds for each parameter
+- `ub::Array`: Upper bounds for each parameter
+
+# Returns
+- `Matrix{Float64}`: Matrix of shape (n_params, n_samples) with parameter combinations
+
+# Example
+```julia
+lb = [0.1, 0.5, 60.0]
+ub = [0.5, 1.0, 80.0]
+samples = create_training_dataset(1000, lb, ub)
+```
+"""
 function create_training_dataset(n::Int, lb::Array, ub::Array)
     # Input validation
     if n <= 0
@@ -24,6 +44,19 @@ function create_training_dataset(n::Int, lb::Array, ub::Array)
     return QuasiMonteCarlo.sample(n, lb, ub, LatinHypercubeSample())
 end
 
+"""
+    create_training_dict(training_matrix::Matrix, idx_comb::Int, params::Vector{String})
+
+Create parameter dictionary for a specific sample from the training matrix.
+
+# Arguments
+- `training_matrix::Matrix`: Matrix of parameter combinations
+- `idx_comb::Int`: Column index of the desired combination
+- `params::Vector{String}`: Parameter names
+
+# Returns
+- `Dict{String, Float64}`: Dictionary mapping parameter names to values
+"""
 function create_training_dict(training_matrix::Matrix, idx_comb::Int, params::Vector{String})
     return Dict([(value, training_matrix[idx_par, idx_comb])
     for (idx_par, value) in enumerate(params)])
@@ -80,7 +113,19 @@ function prepare_dataset_directory(root_dir::String; force::Bool=false)
 end
 
 """
-Helper function to validate inputs for compute_dataset functions.
+    validate_compute_inputs(training_matrix::AbstractMatrix, params::AbstractVector{String})
+
+Validate inputs for compute_dataset functions.
+
+# Arguments
+- `training_matrix::AbstractMatrix`: Matrix of parameter combinations
+- `params::AbstractVector{String}`: Parameter names
+
+# Returns
+- `(n_pars::Int, n_combs::Int)`: Tuple of matrix dimensions
+
+# Throws
+- `ArgumentError`: If inputs are invalid
 """
 function validate_compute_inputs(training_matrix::AbstractMatrix, params::AbstractVector{String})
     n_pars, n_combs = size(training_matrix)

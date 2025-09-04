@@ -8,12 +8,22 @@
 
 A Julia package for training and validating surrogate models (emulators) in the `CosmologicalEmulators` organization. This package provides utilities for dataset creation, training data management, and comprehensive validation of emulator performance.
 
-## Features
+## Key Features
 
-- **Dataset Creation**: Generate training datasets using quasi-Monte Carlo sampling
-- **Data Loading**: Efficient loading and preprocessing of training data from distributed simulations
-- **Validation Tools**: Comprehensive validation utilities
-- **Flexible API**: Intelligent defaults with customizable options
+### 🚀 Smart Auto-Detection
+- **Automatic dimension inference**: No manual feature counting required
+- **Dataset size detection**: Automatically determines number of validation samples
+- **Consistent validation**: Ensures data consistency across files
+
+### ⚡ Flexible Parallelization
+- **Distributed computing**: Scale across multiple processes
+- **Multi-threading**: Efficient shared-memory parallelism
+- **Serial execution**: Debugging and small dataset support
+
+### 📊 Comprehensive Validation
+- **Customizable percentiles**: Compute any error percentiles
+- **Automatic residual computation**: With optional uncertainties
+- **NaN handling**: Robust data loading with automatic filtering
 
 ## Installation
 
@@ -43,9 +53,9 @@ params = ["omega_m", "sigma_8", "H0"]
 param_dict = create_training_dict(training_matrix, 1, params)
 ```
 
-### Computing Datasets with Different Parallelization Modes
+### Computing Datasets
 
-Generate simulation datasets using distributed, threaded, or serial computation:
+Generate datasets with flexible parallelization:
 
 ```julia
 # Define computation function
@@ -54,17 +64,10 @@ function compute_simulation(params_dict, output_dir)
     # Save results to output_dir
 end
 
-# Distributed computing (default - across multiple processes)
-compute_dataset(training_matrix, params, "/data/simulations", compute_simulation)
-
-# Multi-threaded computing (shared memory parallelization)
-compute_dataset(training_matrix, params, "/data/simulations", compute_simulation, :threads)
-
-# Serial computing (for debugging or small datasets)
+# Choose parallelization mode
+compute_dataset(training_matrix, params, "/data/simulations", compute_simulation, :distributed)
+compute_dataset(training_matrix, params, "/data/simulations", compute_simulation, :threads)  
 compute_dataset(training_matrix, params, "/data/simulations", compute_simulation, :serial)
-
-# With force overwrite option
-compute_dataset(training_matrix, params, "/data/simulations", compute_simulation, :threads; force=true)
 ```
 
 ### Loading Training Data
@@ -93,13 +96,13 @@ add_obs_func = (df, root) -> add_observable_df!(
 )
 load_df_directory!(df, "/path/to/simulations", add_obs_func)
 
-# Extract input and output arrays for training
-X, y = extract_input_output_df(df)  # Automatically detects dimensions!
+# Extract arrays - dimensions detected automatically!
+X, y = extract_input_output_df(df)
 ```
 
 ### Validating Emulators
 
-The validation module provides a streamlined API with automatic dimension detection:
+Streamlined validation with full auto-detection:
 
 ```julia
 # Define functions to get ground truth and emulator predictions
@@ -131,17 +134,28 @@ sorted_residuals = evaluate_sorted_residuals(
 )
 ```
 
-## Key Features of the Validation API
+## What's New in v0.3.0
 
-The validation module now features intelligent auto-detection:
+### 🎯 Complete Auto-Detection
+All major functions now automatically detect dimensions:
+- `extract_input_output_df(df)` - No manual feature counting
+- `get_minmax_out(array)` - Auto-detects output dimensions
+- `evaluate_residuals(...)` - Finds all validation samples automatically
+- `sort_residuals(...)` - Infers matrix dimensions
+- `getdata(df)` - Automatically splits train/test with dimension detection
 
-- **Automatic sample counting**: No need to specify the number of validation samples
-- **Automatic dimension inference**: Output dimensions are inferred from the first data file
-- **Consistency validation**: Ensures all files have consistent dimensions
-- **Flexible percentiles**: Customize which percentiles to compute (default: 68%, 95%, 99.7%)
-- **Smart directory handling**: Correctly handles nested directory structures
+### 🔧 Flexible Parallelization
+New `compute_dataset` modes:
+- `:distributed` - Multi-process computing
+- `:threads` - Shared-memory parallelism  
+- `:serial` - Sequential execution
 
-### Example: Complete Validation Pipeline
+### 📊 Enhanced Data Handling
+- **NaN checking**: Both `add_observable_df!` methods now filter NaN values
+- **Robust loading**: Automatic data validation during import
+- **Smart defaults**: Sensible percentiles ([68.0, 95.0, 99.7]) for validation
+
+## Complete Example
 
 ```julia
 using EmulatorsTrainer
@@ -197,14 +211,14 @@ println("Median relative error: ", results[2, :])
 - `evaluate_sorted_residuals(dir, dict_file, params, get_truth, get_pred; get_σ, percentiles)`: Compute sorted residuals at specified percentiles
 - `sort_residuals(residuals; percentiles)`: Sort and extract percentiles
 
-## Roadmap to v1.0.0
+## Roadmap
 
-| Step | Status | Comment |
-|:------------ | :-------------|:-------------|
-| Utils for training | ✅ | Complete with auto-detection |
-| Distributed dataset creation | ✅ | Implemented and tested |
-| Utils for validation | ✅ | Enhanced with intelligent defaults |
-| Active learning | 🚧 | Work in progress |
+| Feature | Status | Version |
+|:--------|:-------|:--------|
+| Auto-detection for all functions | ✅ | v0.3.0 |
+| Flexible parallelization modes | ✅ | v0.3.0 |
+| Smart validation utilities | ✅ | v0.3.0 |
+| Active learning | 🚧 | Planned |
 
 ## Authors
 

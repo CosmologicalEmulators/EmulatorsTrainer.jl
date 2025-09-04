@@ -1,3 +1,18 @@
+"""
+    add_observable_df!(df::DataFrame, location::String, param_file::String,
+                      observable_file::String, first_idx::Int, last_idx::Int, get_tuple::Function)
+
+Add observation slice to DataFrame with NaN checking.
+
+# Arguments
+- `df::DataFrame`: Target DataFrame
+- `location::String`: Directory containing files
+- `param_file::String`: JSON file with parameters
+- `observable_file::String`: NPY file with observables
+- `first_idx::Int`: Start index for slice
+- `last_idx::Int`: End index for slice
+- `get_tuple::Function`: Function to process (params, observable) into tuple
+"""
 function add_observable_df!(df::DataFrames.DataFrame, location::String, param_file::String,
     observable_file::String, first_idx::Int, last_idx::Int, get_tuple::Function)
     json_string = read(location * param_file, String)
@@ -15,6 +30,19 @@ function add_observable_df!(df::DataFrames.DataFrame, location::String, param_fi
     return nothing
 end
 
+"""
+    add_observable_df!(df::DataFrame, location::String, param_file::String,
+                      observable_file::String, get_tuple::Function)
+
+Add complete observation to DataFrame with NaN checking.
+
+# Arguments
+- `df::DataFrame`: Target DataFrame
+- `location::String`: Directory containing files
+- `param_file::String`: JSON file with parameters
+- `observable_file::String`: NPY file with observables
+- `get_tuple::Function`: Function to process (params, observable) into tuple
+"""
 function add_observable_df!(df::DataFrames.DataFrame, location::String, param_file::String,
     observable_file::String, get_tuple::Function)
     json_string = read(location * param_file, String)
@@ -32,6 +60,16 @@ function add_observable_df!(df::DataFrames.DataFrame, location::String, param_fi
     return nothing
 end
 
+"""
+    load_df_directory!(df::DataFrame, Directory::String, add_observable_function::Function)
+
+Recursively load all observations from directory into DataFrame.
+
+# Arguments
+- `df::DataFrame`: Target DataFrame
+- `Directory::String`: Root directory to search
+- `add_observable_function::Function`: Function to add each observation
+"""
 function load_df_directory!(df::DataFrames.DataFrame, Directory::String,
     add_observable_function::Function)
     if !isdir(Directory)
@@ -107,6 +145,18 @@ function extract_input_output_df(df::AbstractDataFrame)
     return array_input, array_output
 end
 
+"""
+    get_minmax_in(df::DataFrame, array_pars_in::Vector{String})
+
+Compute min/max values for specified input features.
+
+# Arguments
+- `df::DataFrame`: DataFrame with input features
+- `array_pars_in::Vector{String}`: Column names to compute min/max for
+
+# Returns
+- `Matrix{Float64}`: Shape (n_params, 2) with [min, max] for each parameter
+"""
 function get_minmax_in(df::DataFrames.DataFrame, array_pars_in::Vector{String})
     n_params = length(array_pars_in)
     if n_params == 0
@@ -159,6 +209,16 @@ function get_minmax_out(array_out::AbstractMatrix{<:Real})
     return out_MinMax
 end
 
+"""
+    maximin_df!(df, in_MinMax, out_MinMax)
+
+Normalize DataFrame features to [0, 1] range in-place.
+
+# Arguments
+- `df`: DataFrame to normalize
+- `in_MinMax`: Min/max values for input features
+- `out_MinMax`: Min/max values for output features
+"""
 function maximin_df!(df, in_MinMax, out_MinMax)
     n_input_features, _ = size(in_MinMax)
     for i in 1:n_input_features
@@ -171,6 +231,18 @@ function maximin_df!(df, in_MinMax, out_MinMax)
     end
 end
 
+"""
+    splitdf(df::DataFrame, pct::Float64)
+
+Randomly split DataFrame into two parts.
+
+# Arguments
+- `df::DataFrame`: DataFrame to split
+- `pct::Float64`: Fraction for first split (0 to 1)
+
+# Returns
+- `(DataFrame, DataFrame)`: Two views of the split data
+"""
 function splitdf(df::DataFrames.DataFrame, pct::Float64)
     if !(0 <= pct <= 1)
         throw(ArgumentError("Split percentage must be between 0 and 1, got $pct"))
@@ -192,11 +264,34 @@ function splitdf(df::DataFrames.DataFrame, pct::Float64)
     return view(df, mask1, :), view(df, .!mask1, :)
 end
 
+"""
+    traintest_split(df, test)
+
+Split DataFrame into training and test sets.
+
+# Arguments
+- `df`: DataFrame to split
+- `test`: Fraction for test set
+
+# Returns
+- `(train_df, test_df)`: Training and test DataFrames
+"""
 function traintest_split(df, test)
     te, tr = splitdf(df, test)
     return tr, te
 end
 
+"""
+    getdata(df)
+
+Split DataFrame into train/test sets with automatic dimension detection.
+
+# Arguments
+- `df`: DataFrame with features and observables
+
+# Returns
+- `(xtrain, ytrain, xtest, ytest)`: Training and test arrays as Float64
+"""
 function getdata(df)
     ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
 
