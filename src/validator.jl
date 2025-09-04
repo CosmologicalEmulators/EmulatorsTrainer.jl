@@ -1,12 +1,8 @@
 function evaluate_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
-    get_ground_truth::Function, get_emu_prediction::Function, n_combs::Int,
-    n_output_features::Int; get_σ::Union{Function,Nothing}=nothing)
+    get_ground_truth::Function, get_emu_prediction::Function; get_σ::Union{Function,Nothing}=nothing)
     # Input validation
     if !isdir(Directory)
         throw(ArgumentError("Directory does not exist: $Directory"))
-    end
-    if n_combs <= 0 || n_output_features <= 0
-        throw(ArgumentError("n_combs and n_output_features must be positive"))
     end
     if isempty(pars_array)
         throw(ArgumentError("Parameter array cannot be empty"))
@@ -15,39 +11,72 @@ function evaluate_residuals(Directory::String, dict_file::String, pars_array::Ve
         throw(ArgumentError("Dictionary file name cannot be empty"))
     end
     
-    my_values = Matrix{Float64}(undef, n_combs, n_output_features)
-    i = 0
-    
+    # Collect all directories containing the target JSON file
+    json_locations = String[]
     for (root, dirs, files) in walkdir(Directory)
-        for file in files
-            if endswith(file, ".json")
-                if i >= n_combs
-                    @warn "Found more JSON files than expected n_combs=$n_combs. Stopping early."
-                    break
-                end
-                try
-                    if get_σ !== nothing
-                        res = get_single_residuals(root, dict_file, pars_array,
-                            get_ground_truth, get_emu_prediction, get_σ)
-                    else
-                        res = get_single_residuals(root, dict_file, pars_array,
-                            get_ground_truth, get_emu_prediction)
-                    end
-                    i += 1
-                    my_values[i, :] = res
-                catch e
-                    @warn "Failed to process file in $root" exception=e
-                    continue
-                end
-            end
-        end
-        if i >= n_combs
-            break
+        # Check if the target JSON file exists in this directory
+        if dict_file in files
+            push!(json_locations, root)
         end
     end
     
-    if i < n_combs
-        @warn "Found fewer JSON files ($i) than expected n_combs=$n_combs. Resizing output."
+    if isempty(json_locations)
+        throw(ArgumentError("No directories containing '$dict_file' found in: $Directory"))
+    end
+    
+    actual_n_combs = length(json_locations)
+    @info "Auto-detected $actual_n_combs directories with '$dict_file'"
+    
+    # Process first file to infer n_output_features
+    first_location = json_locations[1]
+    first_residuals = nothing
+    try
+        if get_σ !== nothing
+            first_residuals = get_single_residuals(first_location, dict_file, pars_array,
+                get_ground_truth, get_emu_prediction, get_σ)
+        else
+            first_residuals = get_single_residuals(first_location, dict_file, pars_array,
+                get_ground_truth, get_emu_prediction)
+        end
+    catch e
+        throw(ArgumentError("Failed to process first file to infer output dimensions: $(string(e))"))
+    end
+    
+    n_output_features = length(first_residuals)
+    @info "Auto-detected $n_output_features output features from first file"
+    
+    my_values = Matrix{Float64}(undef, actual_n_combs, n_output_features)
+    my_values[1, :] = first_residuals
+    i = 1
+    
+    # Process remaining files
+    for location_idx in 2:actual_n_combs
+        location = json_locations[location_idx]
+        try
+            res = nothing
+            if get_σ !== nothing
+                res = get_single_residuals(location, dict_file, pars_array,
+                    get_ground_truth, get_emu_prediction, get_σ)
+            else
+                res = get_single_residuals(location, dict_file, pars_array,
+                    get_ground_truth, get_emu_prediction)
+            end
+            
+            # Validate consistent output dimensions
+            if length(res) != n_output_features
+                throw(ArgumentError("Inconsistent output dimensions: file in $location returned $(length(res)) features, expected $n_output_features"))
+            end
+            
+            i += 1
+            my_values[i, :] = res
+        catch e
+            @warn "Failed to process file in $location" exception=e
+            continue
+        end
+    end
+    
+    if i < actual_n_combs
+        @warn "Found fewer JSON files ($i) than expected n_combs=$actual_n_combs. Resizing output."
         return my_values[1:i, :]
     end
     
@@ -55,24 +84,30 @@ function evaluate_residuals(Directory::String, dict_file::String, pars_array::Ve
 end
 
 function evaluate_sorted_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
-    get_ground_truth::Function, get_emu_prediction::Function,
-    n_combs::Int, n_output_features::Int; get_σ::Union{Function,Nothing}=nothing)
+    get_ground_truth::Function, get_emu_prediction::Function; 
+    get_σ::Union{Function,Nothing}=nothing, percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
     residuals = evaluate_residuals(Directory, dict_file, pars_array,
-        get_ground_truth, get_emu_prediction, n_combs, n_output_features; get_σ=get_σ)
-    actual_n_combs = size(residuals, 1)
-    return sort_residuals(residuals, n_output_features, actual_n_combs)
+        get_ground_truth, get_emu_prediction; get_σ=get_σ)
+    return sort_residuals(residuals; percentiles=percentiles)
 end
 
-function sort_residuals(residuals::AbstractMatrix{<:Real}, n_output::Int, n_elements::Int)
+function sort_residuals(residuals::AbstractMatrix{<:Real};
+    percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
+    # Get dimensions from the residuals matrix
+    n_elements, n_output = size(residuals)
+    
     # Input validation
-    if n_output <= 0 || n_elements <= 0
-        throw(ArgumentError("n_output and n_elements must be positive"))
-    end
-    if size(residuals, 1) != n_elements || size(residuals, 2) != n_output
-        throw(ArgumentError("Residuals matrix dimensions ($(size(residuals))) don't match n_elements=$n_elements, n_output=$n_output"))
-    end
     if n_elements < 3
         throw(ArgumentError("Need at least 3 elements for percentile computation, got n_elements=$n_elements"))
+    end
+    if n_output == 0
+        throw(ArgumentError("Residuals matrix has no output features"))
+    end
+    if isempty(percentiles)
+        throw(ArgumentError("Percentiles array cannot be empty"))
+    end
+    if any(p -> p < 0 || p > 100, percentiles)
+        throw(ArgumentError("Percentiles must be between 0 and 100"))
     end
     
     sorted_residuals = Matrix{Float64}(undef, n_elements, n_output)
@@ -80,16 +115,16 @@ function sort_residuals(residuals::AbstractMatrix{<:Real}, n_output::Int, n_elem
         sorted_residuals[:, i] = sort(residuals[:, i])
     end
     
-    final_residuals = Matrix{Float64}(undef, 3, n_output)
+    n_percentiles = length(percentiles)
+    final_residuals = Matrix{Float64}(undef, n_percentiles, n_output)
     
     # Safe percentile computation with bounds checking
-    idx_68 = max(1, min(n_elements, round(Int, n_elements * 0.68)))
-    idx_95 = max(1, min(n_elements, round(Int, n_elements * 0.95)))
-    idx_997 = max(1, min(n_elements, round(Int, n_elements * 0.997)))
-    
-    final_residuals[1, :] = sorted_residuals[idx_68, :]
-    final_residuals[2, :] = sorted_residuals[idx_95, :]
-    final_residuals[3, :] = sorted_residuals[idx_997, :]
+    # Using ceil for percentile indices to match standard percentile behavior
+    for (p_idx, pct) in enumerate(percentiles)
+        # For percentile p, we want the value at position ceil(n * p/100)
+        idx = max(1, min(n_elements, ceil(Int, n_elements * pct / 100.0)))
+        final_residuals[p_idx, :] = sorted_residuals[idx, :]
+    end
     
     return final_residuals
 end

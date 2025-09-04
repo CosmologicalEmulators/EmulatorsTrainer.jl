@@ -11,38 +11,74 @@ using Dates
     @testset "sort_residuals" begin
         @testset "Basic functionality" begin
             residuals = [1.0 2.0; 3.0 4.0; 2.0 3.0]  # 3x2 matrix
-            result = EmulatorsTrainer.sort_residuals(residuals, 2, 3)
+            result = EmulatorsTrainer.sort_residuals(residuals)
             
             @test size(result) == (3, 2)
-            # For 3 elements: 68% ≈ round(3*0.68) = 2, 95% ≈ round(3*0.95) = 3, 99.7% ≈ round(3*0.997) = 3
+            # For 3 elements: 68% ≈ ceil(3*0.68) = 3, 95% ≈ ceil(3*0.95) = 3, 99.7% ≈ ceil(3*0.997) = 3
             # Column 1: [1.0, 3.0, 2.0] → sorted [1.0, 2.0, 3.0]
-            @test result[1, 1] ≈ 2.0  # index 2 → 2.0
-            @test result[2, 1] ≈ 3.0  # index 3 → 3.0
-            @test result[3, 1] ≈ 3.0  # index 3 → 3.0
+            @test result[1, 1] ≈ 3.0  # index 3 → 3.0 (68th percentile)
+            @test result[2, 1] ≈ 3.0  # index 3 → 3.0 (95th percentile)
+            @test result[3, 1] ≈ 3.0  # index 3 → 3.0 (99.7th percentile)
+        end
+        
+        @testset "Custom percentiles" begin
+            residuals = [1.0; 2.0; 3.0; 4.0; 5.0]  # 5 element vector
+            residuals_matrix = reshape(residuals, 5, 1)
+            
+            # Test with custom percentiles [25, 50, 75]
+            result = EmulatorsTrainer.sort_residuals(residuals_matrix; percentiles=[25.0, 50.0, 75.0])
+            @test size(result) == (3, 1)
+            # For 5 elements: 25% ≈ ceil(5*0.25) = 2, 50% ≈ ceil(5*0.5) = 3, 75% ≈ ceil(5*0.75) = 4
+            @test result[1, 1] ≈ 2.0  # 25th percentile
+            @test result[2, 1] ≈ 3.0  # 50th percentile
+            @test result[3, 1] ≈ 4.0  # 75th percentile
+            
+            # Test with different number of percentiles
+            result2 = EmulatorsTrainer.sort_residuals(residuals_matrix; percentiles=[10.0, 90.0])
+            @test size(result2) == (2, 1)
+            
+            # Test with single percentile
+            result3 = EmulatorsTrainer.sort_residuals(residuals_matrix; percentiles=[50.0])
+            @test size(result3) == (1, 1)
+            @test result3[1, 1] ≈ 3.0  # median
+        end
+        
+        @testset "Percentile validation" begin
+            residuals = reshape([1.0; 2.0; 3.0], 3, 1)
+            
+            # Test invalid percentiles
+            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals; percentiles=Float64[])
+            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals; percentiles=[-10.0])
+            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals; percentiles=[101.0])
+            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals; percentiles=[50.0, 110.0])
         end
         
         @testset "Input validation" begin
-            residuals = [1.0 2.0; 3.0 4.0; 2.0 3.0]
+            # Test with too few elements
+            small_residuals = [1.0; 2.0]  # Only 2 elements
+            small_matrix = reshape(small_residuals, 2, 1)
+            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(small_matrix)  # Need at least 3 elements
             
-            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals, 0, 3)
-            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals, 2, 0)
-            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals, 2, -1)
-            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals, 3, 3)  # Wrong n_output
-            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals, 2, 4)  # Wrong n_elements
-            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(residuals, 2, 2)  # Need at least 3 elements
+            # Test with empty matrix
+            empty_residuals = Matrix{Float64}(undef, 0, 5)
+            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(empty_residuals)
+            
+            # Test with no output features
+            no_output = Matrix{Float64}(undef, 5, 0)
+            @test_throws ArgumentError EmulatorsTrainer.sort_residuals(no_output)
         end
         
         @testset "Edge cases" begin
             # Minimum valid case: 3 elements
             residuals = [1.0; 2.0; 3.0]  # Vector needs to be reshaped to matrix
             residuals_matrix = reshape(residuals, 3, 1)
-            result = EmulatorsTrainer.sort_residuals(residuals_matrix, 1, 3)
+            result = EmulatorsTrainer.sort_residuals(residuals_matrix)
             @test size(result) == (3, 1)
             
             # Large array
             Random.seed!(42)
             large_residuals = rand(1000, 5)
-            result = EmulatorsTrainer.sort_residuals(large_residuals, 5, 1000)
+            result = EmulatorsTrainer.sort_residuals(large_residuals)
             @test size(result) == (3, 5)
             # Check that percentiles are in ascending order
             for col in 1:5
@@ -52,7 +88,7 @@ using Dates
             # Test bounds safety
             for n in [3, 10, 100, 1000]
                 residuals = rand(n, 2)
-                result = EmulatorsTrainer.sort_residuals(residuals, 2, n)
+                result = EmulatorsTrainer.sort_residuals(residuals)
                 @test all(isfinite.(result))
                 @test size(result) == (3, 2)
             end
@@ -165,7 +201,7 @@ using Dates
             @testset "Basic functionality with sigma" begin
                 pars_array = ["omega_m", "sigma_8"]
                 result = EmulatorsTrainer.evaluate_residuals(test_dir, "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 3, 2; get_σ=mock_sigma)
+                    mock_ground_truth, mock_emu_prediction; get_σ=mock_sigma)
                 
                 @test size(result) == (3, 2)
                 @test all(isfinite.(result))
@@ -174,10 +210,28 @@ using Dates
             @testset "Basic functionality without sigma" begin
                 pars_array = ["omega_m", "sigma_8"]
                 result = EmulatorsTrainer.evaluate_residuals(test_dir, "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 3, 2)
+                    mock_ground_truth, mock_emu_prediction)
                 
                 @test size(result) == (3, 2)
                 @test all(isfinite.(result))
+            end
+            
+            @testset "Auto-infer dimensions" begin
+                pars_array = ["omega_m", "sigma_8"]
+                
+                # Test auto-detection
+                result = EmulatorsTrainer.evaluate_residuals(test_dir, "params.json", pars_array,
+                    mock_ground_truth, mock_emu_prediction)
+                
+                @test size(result) == (3, 2)  # Should find 3 JSON files, 2 output features
+                @test all(isfinite.(result))
+                
+                # Test with get_σ
+                result_with_sigma = EmulatorsTrainer.evaluate_residuals(test_dir, "params.json", pars_array,
+                    mock_ground_truth, mock_emu_prediction; get_σ=mock_sigma)
+                
+                @test size(result_with_sigma) == (3, 2)
+                @test all(isfinite.(result_with_sigma))
             end
             
             @testset "Input validation" begin
@@ -185,31 +239,25 @@ using Dates
                 
                 # Non-existent directory
                 @test_throws ArgumentError EmulatorsTrainer.evaluate_residuals("/nonexistent", "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 3, 2)
+                    mock_ground_truth, mock_emu_prediction)
                 
-                # Invalid n_combs/n_output_features
-                @test_throws ArgumentError EmulatorsTrainer.evaluate_residuals(test_dir, "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 0, 2)
-                @test_throws ArgumentError EmulatorsTrainer.evaluate_residuals(test_dir, "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 3, 0)
                 
                 # Empty pars_array
                 @test_throws ArgumentError EmulatorsTrainer.evaluate_residuals(test_dir, "params.json", String[],
-                    mock_ground_truth, mock_emu_prediction, 3, 2)
+                    mock_ground_truth, mock_emu_prediction)
                 
                 # Empty dict_file
                 @test_throws ArgumentError EmulatorsTrainer.evaluate_residuals(test_dir, "", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 3, 2)
+                    mock_ground_truth, mock_emu_prediction)
             end
             
-            @testset "Fewer files than expected" begin
+            @testset "Auto-detect from available files" begin
                 pars_array = ["omega_m", "sigma_8"]
                 
-                # Request more combinations than available
+                # Should always return what's available (3 combinations, 2 features)
                 result = EmulatorsTrainer.evaluate_residuals(test_dir, "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 10, 2)
+                    mock_ground_truth, mock_emu_prediction)
                 
-                # Should return only what's available (3 combinations)
                 @test size(result, 1) == 3
                 @test size(result, 2) == 2
             end
@@ -244,7 +292,7 @@ using Dates
             @testset "Basic functionality" begin
                 pars_array = ["omega_m"]
                 result = EmulatorsTrainer.evaluate_sorted_residuals(test_dir, "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 5, 1)
+                    mock_ground_truth, mock_emu_prediction)
                 
                 @test size(result) == (3, 1)  # 3 percentiles, 1 output feature
                 @test all(isfinite.(result))
@@ -257,7 +305,7 @@ using Dates
                 mock_sigma(loc) = [0.05]
                 
                 result = EmulatorsTrainer.evaluate_sorted_residuals(test_dir, "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 5, 1; get_σ=mock_sigma)
+                    mock_ground_truth, mock_emu_prediction; get_σ=mock_sigma)
                 
                 @test size(result) == (3, 1)
                 @test all(isfinite.(result))
@@ -266,12 +314,45 @@ using Dates
             @testset "Handles dynamic sizing" begin
                 pars_array = ["omega_m"]
                 
-                # Request more than available - should handle gracefully
+                # Should handle available files automatically
                 result = EmulatorsTrainer.evaluate_sorted_residuals(test_dir, "params.json", pars_array,
-                    mock_ground_truth, mock_emu_prediction, 10, 1)
+                    mock_ground_truth, mock_emu_prediction)
                 
                 @test size(result, 2) == 1  # Should still return 1 output feature
                 @test size(result, 1) == 3  # Should still return 3 percentiles
+            end
+            
+            @testset "Custom percentiles" begin
+                pars_array = ["omega_m"]
+                
+                # Test with custom percentiles
+                result = EmulatorsTrainer.evaluate_sorted_residuals(test_dir, "params.json", pars_array,
+                    mock_ground_truth, mock_emu_prediction; percentiles=[25.0, 50.0, 75.0])
+                
+                @test size(result) == (3, 1)  # 3 percentiles requested
+                @test all(isfinite.(result))
+            end
+            
+            @testset "Auto-inference with custom percentiles" begin
+                pars_array = ["omega_m"]
+                
+                # Test with custom percentiles
+                result = EmulatorsTrainer.evaluate_sorted_residuals(test_dir, "params.json", pars_array,
+                    mock_ground_truth, mock_emu_prediction; percentiles=[10.0, 50.0, 90.0])
+                
+                @test size(result) == (3, 1)  # 3 percentiles requested
+                @test all(isfinite.(result))
+            end
+            
+            @testset "Default percentiles" begin
+                pars_array = ["omega_m"]
+                
+                # Test with default percentiles
+                result = EmulatorsTrainer.evaluate_sorted_residuals(test_dir, "params.json", pars_array,
+                    mock_ground_truth, mock_emu_prediction)
+                
+                @test size(result) == (3, 1)  # Should return default 3 percentiles
+                @test all(isfinite.(result))
             end
             
         finally
@@ -326,20 +407,20 @@ using Dates
                 
                 # Test evaluate_residuals
                 residuals = EmulatorsTrainer.evaluate_residuals(test_dir, "cosmology.json", pars_array,
-                    realistic_ground_truth, realistic_emu_prediction, n_samples, 10; get_σ=realistic_sigma)
+                    realistic_ground_truth, realistic_emu_prediction; get_σ=realistic_sigma)
                 
                 @test size(residuals) == (n_samples, 10)
                 @test all(isfinite.(residuals))
                 @test all(residuals .>= 0)  # Residuals should be non-negative
                 
                 # Test sort_residuals
-                sorted_res = EmulatorsTrainer.sort_residuals(residuals, 10, n_samples)
+                sorted_res = EmulatorsTrainer.sort_residuals(residuals)
                 @test size(sorted_res) == (3, 10)
                 @test all(isfinite.(sorted_res))
                 
                 # Test evaluate_sorted_residuals (integrated)
                 integrated_result = EmulatorsTrainer.evaluate_sorted_residuals(test_dir, "cosmology.json", pars_array,
-                    realistic_ground_truth, realistic_emu_prediction, n_samples, 10; get_σ=realistic_sigma)
+                    realistic_ground_truth, realistic_emu_prediction; get_σ=realistic_sigma)
                 
                 @test size(integrated_result) == (3, 10)
                 @test all(isfinite.(integrated_result))
