@@ -258,6 +258,82 @@ using Random
             )
         end
         
+        @testset "Computation modes" begin
+            training_matrix = [1.0 2.0 3.0;
+                              4.0 5.0 6.0]
+            params = ["param1", "param2"]
+            
+            # Test serial mode
+            @testset "Serial mode" begin
+                output_dir = joinpath(test_dir, "serial_test")
+                call_order = Int[]
+                
+                function track_serial(dict, dir)
+                    # Track which combination was processed
+                    for idx in 1:3
+                        if dict["param1"] == training_matrix[1, idx]
+                            push!(call_order, idx)
+                            break
+                        end
+                    end
+                end
+                
+                result_dir = EmulatorsTrainer.compute_dataset(
+                    training_matrix, params, output_dir, track_serial, :serial
+                )
+                
+                @test isdir(output_dir)
+                @test result_dir == output_dir
+                @test length(call_order) == 3
+                # Serial execution should be in order
+                @test call_order == [1, 2, 3]
+            end
+            
+            # Test threads mode
+            @testset "Threads mode" begin
+                output_dir = joinpath(test_dir, "threads_test")
+                calls_made = Threads.Atomic{Int}(0)
+                
+                function track_threads(dict, dir)
+                    Threads.atomic_add!(calls_made, 1)
+                    # Simulate some work
+                    sleep(0.01)
+                end
+                
+                result_dir = EmulatorsTrainer.compute_dataset(
+                    training_matrix, params, output_dir, track_threads, :threads
+                )
+                
+                @test isdir(output_dir)
+                @test result_dir == output_dir
+                @test calls_made[] == 3
+            end
+            
+            # Test distributed mode explicitly
+            @testset "Distributed mode explicit" begin
+                output_dir = joinpath(test_dir, "distributed_test")
+                
+                dummy_func = (dict, dir) -> nothing
+                
+                result_dir = EmulatorsTrainer.compute_dataset(
+                    training_matrix, params, output_dir, dummy_func, :distributed
+                )
+                
+                @test isdir(output_dir)
+                @test result_dir == output_dir
+            end
+            
+            # Test invalid mode
+            @testset "Invalid mode" begin
+                output_dir = joinpath(test_dir, "invalid_mode")
+                dummy_func = (dict, dir) -> nothing
+                
+                @test_throws ArgumentError EmulatorsTrainer.compute_dataset(
+                    training_matrix, params, output_dir, dummy_func, :invalid_mode
+                )
+            end
+        end
+        
         # Cleanup
         rm(test_dir, recursive=true)
     end

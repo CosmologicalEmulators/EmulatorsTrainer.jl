@@ -21,8 +21,14 @@ function add_observable_df!(df::DataFrames.DataFrame, location::String, param_fi
     cosmo_pars = JSON3.read(json_string)
 
     observable = npzread(location * observable_file, "r")
-    processed_observable = get_tuple(cosmo_pars, observable)
-    push!(df, processed_observable)
+    
+    if !any(isnan.(observable))
+        processed_observable = get_tuple(cosmo_pars, observable)
+        push!(df, processed_observable)
+    else
+        @warn "File with NaN at " * location
+    end
+    
     return nothing
 end
 
@@ -43,20 +49,41 @@ function load_df_directory!(df::DataFrames.DataFrame, Directory::String,
     end
 end
 
-#TODO automatically detect n_input_features and n_output_features
-function extract_input_output_df(df::AbstractDataFrame, n_input_features::Int, n_output_features::Int)
+"""
+    extract_input_output_df(df::AbstractDataFrame)
+
+Automatically detect and extract input and output features from a DataFrame.
+Assumes the last column named "observable" contains the output arrays and all other columns are input features.
+
+# Returns
+- `array_input::Matrix{Float64}`: Input features matrix (n_input_features × n_samples)
+- `array_output::Matrix{Float64}`: Output features matrix (n_output_features × n_samples)
+"""
+function extract_input_output_df(df::AbstractDataFrame)
     # Input validation
-    if n_input_features <= 0 || n_output_features <= 0
-        throw(ArgumentError("Feature counts must be positive"))
-    end
-    if ncol(df) < n_input_features + 1  # +1 for observable column
-        throw(ArgumentError("DataFrame has insufficient columns"))
-    end
     if nrow(df) == 0
         throw(ArgumentError("DataFrame cannot be empty"))
     end
-
+    
+    if !hasproperty(df, :observable)
+        throw(ArgumentError("DataFrame must have an 'observable' column"))
+    end
+    
+    # Auto-detect dimensions
+    n_input_features = ncol(df) - 1  # All columns except "observable"
     n_samples = nrow(df)
+    
+    # Get n_output_features from the first observable
+    first_observable = df.observable[1]
+    n_output_features = length(first_observable)
+    
+    if n_output_features == 0
+        throw(ArgumentError("Observable arrays cannot be empty"))
+    end
+    
+    if n_input_features <= 0
+        throw(ArgumentError("DataFrame must have at least one input feature column besides 'observable'"))
+    end
 
     # Extract input features with proper typing
     array_input = Matrix{Float64}(undef, n_input_features, n_samples)
@@ -98,13 +125,27 @@ function get_minmax_in(df::DataFrames.DataFrame, array_pars_in::Vector{String})
     return in_MinMax
 end
 
-#TODO infer n_output_features
-function get_minmax_out(array_out::AbstractMatrix{<:Real}, n_output_features::Int)
-    if size(array_out, 1) != n_output_features
-        throw(ArgumentError("Array first dimension ($(size(array_out, 1))) must match n_output_features ($n_output_features)"))
+"""
+    get_minmax_out(array_out::AbstractMatrix{<:Real})
+
+Compute minimum and maximum values for each output feature.
+Automatically detects the number of output features from the array dimensions.
+
+# Arguments
+- `array_out::AbstractMatrix{<:Real}`: Output array with shape (n_output_features, n_samples)
+
+# Returns
+- `out_MinMax::Matrix{Float64}`: Matrix with shape (n_output_features, 2) containing [min, max] for each feature
+"""
+function get_minmax_out(array_out::AbstractMatrix{<:Real})
+    n_output_features, n_samples = size(array_out)
+    
+    if n_output_features == 0
+        throw(ArgumentError("Array cannot be empty (0 output features)"))
     end
-    if n_output_features <= 0
-        throw(ArgumentError("Number of output features must be positive"))
+    
+    if n_samples == 0
+        throw(ArgumentError("Array cannot be empty (0 samples)"))
     end
 
     out_MinMax = Matrix{Float64}(undef, n_output_features, 2)
@@ -156,13 +197,13 @@ function traintest_split(df, test)
     return tr, te
 end
 
-function getdata(df, n_input_features::Int, n_output_features::Int)
+function getdata(df)
     ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
 
     train_df, test_df = traintest_split(df, 0.2)
 
-    xtrain, ytrain = extract_input_output_df(train_df, n_input_features, n_output_features)
-    xtest, ytest = extract_input_output_df(test_df, n_input_features, n_output_features)
+    xtrain, ytrain = extract_input_output_df(train_df)
+    xtest, ytest = extract_input_output_df(test_df)
 
     return Float64.(xtrain), Float64.(ytrain), Float64.(xtest), Float64.(ytest)
 end

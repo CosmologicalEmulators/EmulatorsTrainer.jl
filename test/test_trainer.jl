@@ -122,7 +122,7 @@ using Statistics
                 ]
             )
             
-            input_array, output_array = EmulatorsTrainer.extract_input_output_df(df, 2, 2)
+            input_array, output_array = EmulatorsTrainer.extract_input_output_df(df)
             
             @test size(input_array) == (2, 3)
             @test size(output_array) == (2, 3)
@@ -141,26 +141,28 @@ using Statistics
         end
         
         @testset "Input validation" begin
-            df = DataFrame(a=[1.0], b=[2.0], observable=[[1.0, 2.0]])
-            
-            # Test negative feature counts
-            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df, -1, 2)
-            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df, 2, -1)
-            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df, 0, 2)
-            
-            # Test insufficient columns
-            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df, 3, 2)
-            
             # Test empty DataFrame
             empty_df = DataFrame(a=Float64[], observable=Vector{Float64}[])
-            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(empty_df, 1, 2)
+            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(empty_df)
             
-            # Test wrong observable size
+            # Test missing observable column
+            df_no_obs = DataFrame(a=[1.0], b=[2.0])
+            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df_no_obs)
+            
+            # Test DataFrame with only observable column
+            df_only_obs = DataFrame(observable=[[1.0, 2.0]])
+            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df_only_obs)
+            
+            # Test empty observable arrays
+            df_empty_obs = DataFrame(a=[1.0], observable=[Float64[]])
+            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df_empty_obs)
+            
+            # Test inconsistent observable sizes
             df_wrong_size = DataFrame(
-                param1=[1.0],
-                observable=[[1.0, 2.0, 3.0]]  # Size 3, but expecting 2
+                param1=[1.0, 2.0],
+                observable=[[1.0, 2.0], [1.0, 2.0, 3.0]]  # Different sizes
             )
-            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df_wrong_size, 1, 2)
+            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(df_wrong_size)
         end
         
         @testset "Single sample" begin
@@ -170,12 +172,42 @@ using Statistics
                 observable=[[100.0, 200.0, 300.0]]
             )
             
-            input_array, output_array = EmulatorsTrainer.extract_input_output_df(df, 2, 3)
+            input_array, output_array = EmulatorsTrainer.extract_input_output_df(df)
             
             @test size(input_array) == (2, 1)
             @test size(output_array) == (3, 1)
             @test input_array == [5.0; 10.0;;]
             @test output_array == [100.0; 200.0; 300.0;;]
+        end
+        
+        @testset "Realistic cosmological parameters" begin
+            # Test with realistic cosmological parameters
+            df = DataFrame(
+                ln10A_s=[2.1, 2.2, 2.3],
+                ns=[0.96, 0.97, 0.98],
+                H0=[67.0, 68.0, 69.0],
+                omega_b=[0.022, 0.023, 0.024],
+                omega_cdm=[0.12, 0.13, 0.14],
+                τ=[0.05, 0.06, 0.07],
+                Mν=[0.06, 0.08, 0.10],
+                w0=[-1.0, -0.9, -0.8],
+                wa=[0.0, 0.1, 0.2],
+                observable=[
+                    rand(100),  # 100 output features
+                    rand(100),
+                    rand(100)
+                ]
+            )
+            
+            # Auto-detect dimensions
+            input_array, output_array = EmulatorsTrainer.extract_input_output_df(df)
+            
+            @test size(input_array) == (9, 3)  # 9 input features, 3 samples
+            @test size(output_array) == (100, 3)  # 100 output features, 3 samples
+            
+            # Verify correct parameter extraction
+            @test input_array[1, 1] == 2.1  # ln10A_s first sample
+            @test input_array[9, 3] == 0.2  # wa last sample
         end
     end
     
@@ -225,7 +257,7 @@ using Statistics
                                2.0 8.0 4.0;
                                10.0 20.0 15.0]
             
-            minmax = EmulatorsTrainer.get_minmax_out(array_out, 3)
+            minmax = EmulatorsTrainer.get_minmax_out(array_out)
             
             @test size(minmax) == (3, 2)
             @test minmax[1, 1] == 1.0  # min of first row
@@ -238,20 +270,22 @@ using Statistics
         end
         
         @testset "Input validation" begin
-            array_out = Float64[1.0 2.0; 3.0 4.0]
+            # Test empty arrays
+            empty_array = Matrix{Float64}(undef, 0, 0)
+            @test_throws ArgumentError EmulatorsTrainer.get_minmax_out(empty_array)
             
-            # Test dimension mismatch
-            @test_throws ArgumentError EmulatorsTrainer.get_minmax_out(array_out, 3)  # Has 2 rows, expecting 3
-            @test_throws ArgumentError EmulatorsTrainer.get_minmax_out(array_out, 1)  # Has 2 rows, expecting 1
+            # Test array with 0 samples
+            no_samples = Matrix{Float64}(undef, 3, 0)
+            @test_throws ArgumentError EmulatorsTrainer.get_minmax_out(no_samples)
             
-            # Test negative output features
-            @test_throws ArgumentError EmulatorsTrainer.get_minmax_out(array_out, -1)
-            @test_throws ArgumentError EmulatorsTrainer.get_minmax_out(array_out, 0)
+            # Test array with 0 features
+            no_features = Matrix{Float64}(undef, 0, 3)
+            @test_throws ArgumentError EmulatorsTrainer.get_minmax_out(no_features)
         end
         
         @testset "Single feature" begin
             array_out = reshape([10.0, 5.0, 15.0, 2.0], 1, 4)  # Single row, 4 columns
-            minmax = EmulatorsTrainer.get_minmax_out(array_out, 1)
+            minmax = EmulatorsTrainer.get_minmax_out(array_out)
             
             @test size(minmax) == (1, 2)
             @test minmax[1, 1] == 2.0
@@ -260,7 +294,7 @@ using Statistics
         
         @testset "Single sample" begin
             array_out = Float64[1.0; 2.0; 3.0;;]  # Single column
-            minmax = EmulatorsTrainer.get_minmax_out(array_out, 3)
+            minmax = EmulatorsTrainer.get_minmax_out(array_out)
             
             @test size(minmax) == (3, 2)
             @test all(minmax[:, 1] .== minmax[:, 2])  # Min equals max for single sample
@@ -389,7 +423,7 @@ using Statistics
                 ]
             )
             
-            xtrain, ytrain, xtest, ytest = EmulatorsTrainer.getdata(df, 2, 2)
+            xtrain, ytrain, xtest, ytest = EmulatorsTrainer.getdata(df)
             
             # Check dimensions
             @test size(xtrain, 1) == 2  # 2 input features
@@ -431,7 +465,7 @@ using Statistics
             )
             
             # Call getdata
-            EmulatorsTrainer.getdata(df, 1, 1)
+            EmulatorsTrainer.getdata(df)
             
             # Check that environment variable was set
             @test ENV["DATADEPS_ALWAYS_ACCEPT"] == "true"
@@ -460,31 +494,28 @@ using Statistics
             
             # Test the full pipeline
             param_names = ["omega_m", "omega_b", "h"]
-            n_input = 3
-            n_output = 100
-            
             # Get min/max for inputs
             input_minmax = EmulatorsTrainer.get_minmax_in(df, param_names)
             @test size(input_minmax) == (3, 2)
             
-            # Extract arrays
-            input_array, output_array = EmulatorsTrainer.extract_input_output_df(df, n_input, n_output)
+            # Extract arrays (auto-detect dimensions)
+            input_array, output_array = EmulatorsTrainer.extract_input_output_df(df)
             @test size(input_array) == (3, n_samples)
             @test size(output_array) == (100, n_samples)
             
             # Get min/max for outputs
-            output_minmax = EmulatorsTrainer.get_minmax_out(output_array, n_output)
+            output_minmax = EmulatorsTrainer.get_minmax_out(output_array)
             @test size(output_minmax) == (100, 2)
             
             # Test train/test split
-            xtrain, ytrain, xtest, ytest = EmulatorsTrainer.getdata(df, n_input, n_output)
+            xtrain, ytrain, xtest, ytest = EmulatorsTrainer.getdata(df)
             
             total_samples = size(xtrain, 2) + size(xtest, 2)
             @test total_samples == n_samples
-            @test size(xtrain, 1) == n_input
-            @test size(ytrain, 1) == n_output
-            @test size(xtest, 1) == n_input  
-            @test size(ytest, 1) == n_output
+            @test size(xtrain, 1) == 3  # 3 input features
+            @test size(ytrain, 1) == 100  # 100 output features
+            @test size(xtest, 1) == 3  # 3 input features
+            @test size(ytest, 1) == 100  # 100 output features
         end
     end
 end

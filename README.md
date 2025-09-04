@@ -43,6 +43,30 @@ params = ["omega_m", "sigma_8", "H0"]
 param_dict = create_training_dict(training_matrix, 1, params)
 ```
 
+### Computing Datasets with Different Parallelization Modes
+
+Generate simulation datasets using distributed, threaded, or serial computation:
+
+```julia
+# Define computation function
+function compute_simulation(params_dict, output_dir)
+    # Your simulation code here
+    # Save results to output_dir
+end
+
+# Distributed computing (default - across multiple processes)
+compute_dataset(training_matrix, params, "/data/simulations", compute_simulation)
+
+# Multi-threaded computing (shared memory parallelization)
+compute_dataset(training_matrix, params, "/data/simulations", compute_simulation, :threads)
+
+# Serial computing (for debugging or small datasets)
+compute_dataset(training_matrix, params, "/data/simulations", compute_simulation, :serial)
+
+# With force overwrite option
+compute_dataset(training_matrix, params, "/data/simulations", compute_simulation, :threads; force=true)
+```
+
 ### Loading Training Data
 
 Load simulation outputs into a DataFrame for training:
@@ -70,7 +94,7 @@ add_obs_func = (df, root) -> add_observable_df!(
 load_df_directory!(df, "/path/to/simulations", add_obs_func)
 
 # Extract input and output arrays for training
-X, y = extract_input_output_df(df, 3, 100)  # 3 inputs, 100 outputs
+X, y = extract_input_output_df(df)  # Automatically detects dimensions!
 ```
 
 ### Validating Emulators
@@ -151,15 +175,21 @@ println("Median relative error: ", results[2, :])
 
 ### Dataset Creation
 
-- `create_training_dataset(n, lb, ub)`: Generate quasi-Monte Carlo samples
-- `create_training_dict(matrix, idx, params)`: Create parameter dictionary
-- `prepare_dataset_directory(path; force=false)`: Safely create dataset directory
+- `create_training_dataset(n, lb, ub)`: Generate quasi-Monte Carlo samples using Latin Hypercube
+- `create_training_dict(matrix, idx, params)`: Create parameter dictionary for a specific sample
+- `prepare_dataset_directory(path; force=false)`: Safely create dataset directory with backup options
+- `compute_dataset(matrix, params, dir, func, mode; force)`: Compute dataset with parallelization
+  - Modes: `:distributed` (default), `:threads`, `:serial`
 
 ### Data Loading
 
-- `add_observable_df!(df, location, param_file, obs_file, get_tuple)`: Add single observation
+- `add_observable_df!(df, location, param_file, obs_file, get_tuple)`: Add single observation with NaN checking
+- `add_observable_df!(df, location, param_file, obs_file, first_idx, last_idx, get_tuple)`: Add observation slice with NaN checking
 - `load_df_directory!(df, dir, add_func)`: Load all observations from directory
-- `extract_input_output_df(df, n_in, n_out)`: Extract training arrays
+- `extract_input_output_df(df)`: Extract training arrays with automatic dimension detection
+- `get_minmax_in(df, params)`: Get min/max values for input features
+- `get_minmax_out(array_out)`: Get min/max values for output features with automatic detection
+- `getdata(df)`: Split DataFrame into train/test sets with automatic dimension detection
 
 ### Validation
 
