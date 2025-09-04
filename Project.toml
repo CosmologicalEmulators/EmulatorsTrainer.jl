@@ -1,20 +1,31 @@
 name = "EmulatorsTrainer"
 uuid = "ef107171-9c1d-4869-9860-ac18fb1a7e36"
 authors = ["Marco Bonici <bonici.marco@gmail.com>"]
-version = "0.2.0"
+version = "0.3.0"
 
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
 Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
 NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 QuasiMonteCarlo = "8a4e6c94-4038-4cdc-81c3-7e6ffdb2a71b"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 DataFrames = "1"
+Dates = "1.10.0"
 Distributions = "0.25"
+Documenter = "1.14.1"
 JSON3 = "1"
 NPZ = "0.4"
 QuasiMonteCarlo = "0.3"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

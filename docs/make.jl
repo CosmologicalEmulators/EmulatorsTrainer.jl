@@ -13,7 +13,9 @@ makedocs(
     authors  = "Marco Bonici",
     pages = [
         "Home" => "index.md",
-    ]
+        "API Reference" => "api.md",
+    ],
+    checkdocs = :exports  # Only check exported functions
 )
 
 deploydocs(
