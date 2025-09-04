@@ -1,26 +1,26 @@
 function add_observable_df!(df::DataFrames.DataFrame, location::String, param_file::String,
     observable_file::String, first_idx::Int, last_idx::Int, get_tuple::Function)
-    json_string = read(location*param_file, String)
+    json_string = read(location * param_file, String)
     cosmo_pars = JSON3.read(json_string)
 
-    observable = npzread(location*observable_file, "r")[first_idx:last_idx]
-  
+    observable = npzread(location * observable_file, "r")[first_idx:last_idx]
+
     if !any(isnan.(observable))
         processed_observable = get_tuple(cosmo_pars, observable)
         push!(df, processed_observable)
     else
-        @warn "File with NaN at "*location
+        @warn "File with NaN at " * location
     end
-    
+
     return nothing
 end
 
 function add_observable_df!(df::DataFrames.DataFrame, location::String, param_file::String,
     observable_file::String, get_tuple::Function)
-    json_string = read(location*param_file, String)
+    json_string = read(location * param_file, String)
     cosmo_pars = JSON3.read(json_string)
 
-    observable = npzread(location*observable_file, "r")
+    observable = npzread(location * observable_file, "r")
     processed_observable = get_tuple(cosmo_pars, observable)
     push!(df, processed_observable)
     return nothing
@@ -31,7 +31,7 @@ function load_df_directory!(df::DataFrames.DataFrame, Directory::String,
     if !isdir(Directory)
         throw(ArgumentError("Directory does not exist: $Directory"))
     end
-    
+
     for (root, dirs, files) in walkdir(Directory)
         for file in files
             if endswith(file, ".json")
@@ -43,6 +43,7 @@ function load_df_directory!(df::DataFrames.DataFrame, Directory::String,
     end
 end
 
+#TODO automatically detect n_input_features and n_output_features
 function extract_input_output_df(df::AbstractDataFrame, n_input_features::Int, n_output_features::Int)
     # Input validation
     if n_input_features <= 0 || n_output_features <= 0
@@ -54,19 +55,19 @@ function extract_input_output_df(df::AbstractDataFrame, n_input_features::Int, n
     if nrow(df) == 0
         throw(ArgumentError("DataFrame cannot be empty"))
     end
-    
+
     n_samples = nrow(df)
-    
+
     # Extract input features with proper typing
     array_input = Matrix{Float64}(undef, n_input_features, n_samples)
     for i in 1:n_input_features
         array_input[i, :] = df[!, i]  # More efficient column-wise access
     end
-    
+
     # Extract output features (observables) with proper typing
     array_output = Matrix{Float64}(undef, n_output_features, n_samples)
     observable_col = df[!, "observable"]  # Assumes column named "observable"
-    
+
     # Vectorized extraction of observables
     for i in 1:n_samples
         obs = observable_col[i]
@@ -75,7 +76,7 @@ function extract_input_output_df(df::AbstractDataFrame, n_input_features::Int, n
         end
         array_output[:, i] = obs
     end
-    
+
     return array_input, array_output
 end
 
@@ -84,7 +85,7 @@ function get_minmax_in(df::DataFrames.DataFrame, array_pars_in::Vector{String})
     if n_params == 0
         throw(ArgumentError("Parameter list cannot be empty"))
     end
-    
+
     in_MinMax = Matrix{Float64}(undef, n_params, 2)
     for (idx, key) in enumerate(array_pars_in)
         if !hasproperty(df, key)
@@ -97,6 +98,7 @@ function get_minmax_in(df::DataFrames.DataFrame, array_pars_in::Vector{String})
     return in_MinMax
 end
 
+#TODO infer n_output_features
 function get_minmax_out(array_out::AbstractMatrix{<:Real}, n_output_features::Int)
     if size(array_out, 1) != n_output_features
         throw(ArgumentError("Array first dimension ($(size(array_out, 1))) must match n_output_features ($n_output_features)"))
@@ -104,9 +106,9 @@ function get_minmax_out(array_out::AbstractMatrix{<:Real}, n_output_features::In
     if n_output_features <= 0
         throw(ArgumentError("Number of output features must be positive"))
     end
-    
+
     out_MinMax = Matrix{Float64}(undef, n_output_features, 2)
-    
+
     # Vectorized min/max computation is more efficient
     for i in 1:n_output_features
         row_data = view(array_out, i, :)  # Use view to avoid copying
@@ -119,12 +121,12 @@ end
 function maximin_df!(df, in_MinMax, out_MinMax)
     n_input_features, _ = size(in_MinMax)
     for i in 1:n_input_features
-        df[!,i] .-= in_MinMax[i,1]
-        df[!,i] ./= (in_MinMax[i,2]-in_MinMax[i,1])
+        df[!, i] .-= in_MinMax[i, 1]
+        df[!, i] ./= (in_MinMax[i, 2] - in_MinMax[i, 1])
     end
     for i in 1:nrow(df)
-        df[!,"observable"][i] .-= out_MinMax[:,1]
-        df[!,"observable"][i] ./= (out_MinMax[:,2]-out_MinMax[:,1])
+        df[!, "observable"][i] .-= out_MinMax[:, 1]
+        df[!, "observable"][i] ./= (out_MinMax[:, 2] - out_MinMax[:, 1])
     end
 end
 
@@ -132,20 +134,20 @@ function splitdf(df::DataFrames.DataFrame, pct::Float64)
     if !(0 <= pct <= 1)
         throw(ArgumentError("Split percentage must be between 0 and 1, got $pct"))
     end
-    
+
     n_rows = nrow(df)
     if n_rows == 0
         throw(ArgumentError("Cannot split empty DataFrame"))
     end
-    
+
     # More efficient splitting
     split_idx = round(Int, n_rows * pct)
     indices = randperm(n_rows)  # More efficient than collect + shuffle
-    
+
     # Create boolean masks more efficiently
     mask1 = falses(n_rows)
     mask1[indices[1:split_idx]] .= true
-    
+
     return view(df, mask1, :), view(df, .!mask1, :)
 end
 

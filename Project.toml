@@ -1,7 +1,7 @@
 name = "EmulatorsTrainer"
 uuid = "ef107171-9c1d-4869-9860-ac18fb1a7e36"
 authors = ["Marco Bonici <bonici.marco@gmail.com>"]
-version = "0.2.0"
+version = "0.3.0"
 
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
