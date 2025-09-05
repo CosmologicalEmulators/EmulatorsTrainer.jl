@@ -17,7 +17,7 @@ Automatically detects the number of validation samples and output features.
 # Returns
 - `Matrix{Float64}`: Residuals matrix (n_samples × n_output_features)
 """
-function evaluate_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
+function evaluate_residuals(Directory::String, dict_file::String, pars_array::AbstractVector{<:AbstractString},
     get_ground_truth::Function, get_emu_prediction::Function; get_σ::Union{Function,Nothing}=nothing)
     # Input validation
     if !isdir(Directory)
@@ -106,7 +106,7 @@ end
     evaluate_sorted_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
                             get_ground_truth::Function, get_emu_prediction::Function;
                             get_σ::Union{Function,Nothing}=nothing, 
-                            percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
+                            percentiles::AbstractVector{<:Real}=[68.0, 95.0, 99.7])
 
 Compute sorted residuals at specified percentiles.
 Automatically detects number of samples and output features.
@@ -118,14 +118,14 @@ Automatically detects number of samples and output features.
 - `get_ground_truth::Function`: Function to load ground truth
 - `get_emu_prediction::Function`: Function to get emulator prediction
 - `get_σ::Union{Function,Nothing}=nothing`: Optional function for uncertainties
-- `percentiles::Vector{Float64}=[68.0, 95.0, 99.7]`: Percentiles to compute
+- `percentiles::AbstractVector{<:Real}=[68.0, 95.0, 99.7]`: Percentiles to compute
 
 # Returns
 - `Matrix{Float64}`: Sorted residuals (n_percentiles × n_features)
 """
-function evaluate_sorted_residuals(Directory::String, dict_file::String, pars_array::Vector{String},
+function evaluate_sorted_residuals(Directory::String, dict_file::String, pars_array::AbstractVector{<:AbstractString},
     get_ground_truth::Function, get_emu_prediction::Function; 
-    get_σ::Union{Function,Nothing}=nothing, percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
+    get_σ::Union{Function,Nothing}=nothing, percentiles::AbstractVector{<:Real}=[68.0, 95.0, 99.7])
     residuals = evaluate_residuals(Directory, dict_file, pars_array,
         get_ground_truth, get_emu_prediction; get_σ=get_σ)
     return sort_residuals(residuals; percentiles=percentiles)
@@ -133,20 +133,20 @@ end
 
 """
     sort_residuals(residuals::AbstractMatrix{<:Real};
-                  percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
+                  percentiles::AbstractVector{<:Real}=[68.0, 95.0, 99.7])
 
 Sort residuals and extract specified percentiles.
 Automatically detects dimensions from input matrix.
 
 # Arguments
 - `residuals::AbstractMatrix{<:Real}`: Residuals matrix
-- `percentiles::Vector{Float64}=[68.0, 95.0, 99.7]`: Percentiles to extract
+- `percentiles::AbstractVector{<:Real}=[68.0, 95.0, 99.7]`: Percentiles to extract
 
 # Returns
 - `Matrix{Float64}`: Percentiles matrix (n_percentiles × n_features)
 """
 function sort_residuals(residuals::AbstractMatrix{<:Real};
-    percentiles::Vector{Float64}=[68.0, 95.0, 99.7])
+    percentiles::AbstractVector{<:Real}=[68.0, 95.0, 99.7])
     # Get dimensions from the residuals matrix
     n_elements, n_output = size(residuals)
     
@@ -201,7 +201,7 @@ Compute residuals for a single validation sample with uncertainties.
 # Returns
 - `Vector{Float64}`: Normalized residuals
 """
-function get_single_residuals(location::String, dict_file::String, pars_array::Vector{String},
+function get_single_residuals(location::String, dict_file::String, pars_array::AbstractVector{<:AbstractString},
     get_ground_truth::Function, get_emu_prediction::Function, get_σ::Function)
     # Input validation
     if isempty(location) || isempty(dict_file)
@@ -266,7 +266,7 @@ Compute residuals for a single validation sample.
 # Returns
 - `Vector{Float64}`: Absolute relative residuals
 """
-function get_single_residuals(location::String, dict_file::String, pars_array::Vector{String},
+function get_single_residuals(location::String, dict_file::String, pars_array::AbstractVector{<:AbstractString},
     get_ground_truth::Function, get_emu_prediction::Function)
     # Input validation
     if isempty(location) || isempty(dict_file)

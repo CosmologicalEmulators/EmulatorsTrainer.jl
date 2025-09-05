@@ -157,7 +157,7 @@ Compute min/max values for specified input features.
 # Returns
 - `Matrix{Float64}`: Shape (n_params, 2) with [min, max] for each parameter
 """
-function get_minmax_in(df::DataFrames.DataFrame, array_pars_in::Vector{String})
+function get_minmax_in(df::DataFrames.DataFrame, array_pars_in::AbstractVector{<:AbstractString})
     n_params = length(array_pars_in)
     if n_params == 0
         throw(ArgumentError("Parameter list cannot be empty"))

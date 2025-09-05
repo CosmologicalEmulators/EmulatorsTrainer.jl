@@ -18,7 +18,7 @@ ub = [0.5, 1.0, 80.0]
 samples = create_training_dataset(1000, lb, ub)
 ```
 """
-function create_training_dataset(n::Int, lb::Array, ub::Array)
+function create_training_dataset(n::Int, lb::AbstractArray{<:Real}, ub::AbstractArray{<:Real})
     # Input validation
     if n <= 0
         throw(ArgumentError("Number of samples must be positive, got n=$n"))
@@ -41,7 +41,10 @@ function create_training_dataset(n::Int, lb::Array, ub::Array)
         end
     end
 
-    return QuasiMonteCarlo.sample(n, lb, ub, LatinHypercubeSample())
+    # Convert to concrete Vector types for QuasiMonteCarlo.sample
+    lb_vec = Float64[lb[i] for i in 1:length(lb)]
+    ub_vec = Float64[ub[i] for i in 1:length(ub)]
+    return QuasiMonteCarlo.sample(n, lb_vec, ub_vec, LatinHypercubeSample())
 end
 
 """
@@ -57,7 +60,7 @@ Create parameter dictionary for a specific sample from the training matrix.
 # Returns
 - `Dict{String, Float64}`: Dictionary mapping parameter names to values
 """
-function create_training_dict(training_matrix::Matrix, idx_comb::Int, params::Vector{String})
+function create_training_dict(training_matrix::AbstractMatrix{T}, idx_comb::Int, params::AbstractVector{<:AbstractString}) where T<:Real
     return Dict([(value, training_matrix[idx_par, idx_comb])
     for (idx_par, value) in enumerate(params)])
 end
@@ -127,7 +130,7 @@ Validate inputs for compute_dataset functions.
 # Throws
 - `ArgumentError`: If inputs are invalid
 """
-function validate_compute_inputs(training_matrix::AbstractMatrix, params::AbstractVector{String})
+function validate_compute_inputs(training_matrix::AbstractMatrix, params::AbstractVector{<:AbstractString})
     n_pars, n_combs = size(training_matrix)
 
     # Input validation
@@ -177,7 +180,7 @@ Compute dataset using specified parallelization mode with optional force overrid
 - `:threads`: Use multi-threading on shared memory
 - `:serial`: Sequential execution (useful for debugging)
 """
-function compute_dataset(training_matrix::AbstractMatrix, params::AbstractVector{String},
+function compute_dataset(training_matrix::AbstractMatrix, params::AbstractVector{<:AbstractString},
                         root_dir::String, script_func::Function,
                         mode::Symbol; force::Bool=false)
 
