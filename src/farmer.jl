@@ -18,7 +18,7 @@ ub = [0.5, 1.0, 80.0]
 samples = create_training_dataset(1000, lb, ub)
 ```
 """
-function create_training_dataset(n::Int, lb::AbstractArray{<:Real}, ub::AbstractArray{<:Real})
+function create_training_dataset(n::Int, lb::AbstractArray, ub::AbstractArray)
     # Input validation
     if n <= 0
         throw(ArgumentError("Number of samples must be positive, got n=$n"))
@@ -30,6 +30,14 @@ function create_training_dataset(n::Int, lb::AbstractArray{<:Real}, ub::Abstract
 
     if isempty(lb)
         throw(ArgumentError("Bounds arrays cannot be empty"))
+    end
+    
+    # Check that elements are Real numbers
+    if !isempty(lb) && !(eltype(lb) <: Real)
+        throw(ArgumentError("Lower bounds must contain Real numbers, got $(eltype(lb))"))
+    end
+    if !isempty(ub) && !(eltype(ub) <: Real)
+        throw(ArgumentError("Upper bounds must contain Real numbers, got $(eltype(ub))"))
     end
 
     for i in 1:length(lb)
