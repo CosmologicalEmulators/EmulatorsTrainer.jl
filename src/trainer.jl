@@ -78,7 +78,7 @@ function load_df_directory!(df::DataFrames.DataFrame, Directory::String,
 
     for (root, dirs, files) in walkdir(Directory)
         for file in files
-            if endswith(file, ".json")
+            if endswith(file, ".json") && !startswith(file, ".")
                 # Call the add_observable function with the root directory
                 # Note: The actual function signature depends on which add_observable_df! variant is used
                 add_observable_function(df, root * "/")

@@ -1,7 +1,7 @@
 name = "EmulatorsTrainer"
 uuid = "ef107171-9c1d-4869-9860-ac18fb1a7e36"
-authors = ["Marco Bonici <bonici.marco@gmail.com>"]
 version = "0.3.0"
+authors = ["Marco Bonici <bonici.marco@gmail.com>"]
 
 [deps]
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
@@ -10,10 +10,19 @@ Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 JSON3 = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 QuasiMonteCarlo = "8a4e6c94-4038-4cdc-81c3-7e6ffdb2a71b"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
+
+[weakdeps]
+Pathfinder = "b1d3bc72-d0e7-4279-b92f-7fa5d6d2d454"
+SimpleFlows = "7aff1418-a6e2-48c2-ba03-ae8e32e98757"
+Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
+
+[extensions]
+ActiveLearningExt = ["Pathfinder", "SimpleFlows", "Turing"]
 
 [compat]
 DataFrames = "1"
@@ -21,6 +30,7 @@ Dates = "1.10.0"
 Distributions = "0.25"
 Documenter = "1.14.1"
 JSON3 = "1"
+LinearAlgebra = "1.12.0"
 NPZ = "0.4"
 QuasiMonteCarlo = "0.3"
 

@@ -22,6 +22,17 @@ export maximin_df!, splitdf, traintest_split, getdata
 # Export validation functions
 export evaluate_residuals, evaluate_sorted_residuals, sort_residuals
 
+# Export Active Learning extension stubs
+export train_active_nf, draw_latent_samples
+export run_nuts, run_pathfinder, prune_dataset
+
+# Stubs for Active Learning extension (implemented in ext/ActiveLearningExt.jl)
+function train_active_nf end
+function draw_latent_samples end
+function run_nuts end
+function run_pathfinder end
+function prune_dataset end
+
 include("trainer.jl")
 include("farmer.jl")
 include("validator.jl")
