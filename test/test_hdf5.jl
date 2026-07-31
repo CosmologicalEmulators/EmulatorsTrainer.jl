@@ -23,3 +23,35 @@
         @test size(dataset.observables[:cube]) == (4, 2, 2)
     end
 end
+
+@testset "HDF5 per-sample failure handling" begin
+    training_matrix = reshape(collect(1.0:8.0), 1, :)
+    parameter_names = ["x"]
+    function compute_with_failures(parameters)
+        x = Int(parameters["x"])
+        x in (1, 4, 7) && error("rejected sample $x")
+        return (value=[x, x^2],)
+    end
+
+    strict_root = joinpath(mktempdir(), "strict")
+    @test_throws ErrorException EmulatorsTrainer.compute_dataset_hdf5(
+        training_matrix, parameter_names, strict_root, compute_with_failures,
+    )
+
+    tolerant_root = joinpath(mktempdir(), "tolerant")
+    output = EmulatorsTrainer.compute_dataset_hdf5(
+        training_matrix, parameter_names, tolerant_root, compute_with_failures;
+        skip_errors=true,
+    )
+    dataset = EmulatorsTrainer.load_hdf5_dataset(output)
+    @test dataset.sample_indices == [2, 3, 5, 6, 8]
+    @test dataset.parameters == reshape([2.0, 3.0, 5.0, 6.0, 8.0], :, 1)
+    @test all(dataset.valid)
+    @test dataset.observables[:value] == [2 4; 3 9; 5 25; 6 36; 8 64]
+
+    failure_path = joinpath(tolerant_root, "generation_failures.json")
+    @test isfile(failure_path)
+    failures = JSON3.read(read(failure_path, String))
+    @test [failure["sample_index"] for failure in failures] == [1, 4, 7]
+    @test all(occursin("rejected sample", failure["error"]) for failure in failures)
+end

@@ -1,6 +1,7 @@
 """
     compute_dataset_hdf5(training_matrix, params, root_dir, compute_func;
-                         mode=:serial, force=false, static_arrays=nothing)
+                         mode=:serial, force=false, static_arrays=nothing,
+                         skip_errors=false)
 
 Compute a dataset into one HDF5 shard per worker/thread and merge the shards
 into `root_dir/dataset.h5`. `compute_func` receives one parameter dictionary
@@ -10,6 +11,11 @@ and must return a `NamedTuple` of same-shaped arrays, for example
 The first dimension of every dataset is the sample dimension. Samples are
 assigned deterministic, disjoint ranges, so no writer ever appends to a
 shared file or modifies another writer's file.
+
+When `skip_errors=true`, exceptions raised by `compute_func` reject only that
+sample. Failures are recorded in `generation_failures.json`, and rejected rows
+are removed from the merged `dataset.h5` while `sample_indices` retain their
+original positions in the candidate design.
 """
 const _HDF5_IO_LOCK = ReentrantLock()
 
@@ -74,10 +80,55 @@ function _hdf5_write_result!(file, datasets, valid_dataset, local_index, result)
     flush(file)
 end
 
+function _hdf5_failure_path(shard_path)
+    return splitext(shard_path)[1] * "_failures.json"
+end
+
+function _hdf5_write_failures(shard_path, failures::Dict{Int,String})
+    isempty(failures) && return nothing
+    records = [
+        Dict("sample_index" => index, "error" => failures[index])
+        for index in sort!(collect(keys(failures)))
+    ]
+    open(_hdf5_failure_path(shard_path), "w") do stream
+        JSON3.write(stream, records)
+    end
+    return nothing
+end
+
+function _hdf5_compute_or_record(compute_func, parameters, sample_index,
+                                  failures, skip_errors)
+    try
+        return compute_func(parameters)
+    catch error
+        skip_errors || rethrow()
+        failures[sample_index] = sprint(showerror, error)
+        return nothing
+    end
+end
+
 function _hdf5_run_shard(training_matrix, parameter_names, sample_indices, shard_path,
-                         compute_func, io_lock)
+                         compute_func, io_lock, skip_errors)
     isempty(sample_indices) && return shard_path
-    first_result = compute_func(create_training_dict(training_matrix, first(sample_indices), parameter_names))
+    failures = Dict{Int,String}()
+    first_result = nothing
+    first_local_index = 0
+    for (local_index, sample_index) in enumerate(sample_indices)
+        parameters = create_training_dict(training_matrix, sample_index, parameter_names)
+        result = _hdf5_compute_or_record(
+            compute_func, parameters, sample_index, failures, skip_errors,
+        )
+        if result !== nothing
+            first_result = result
+            first_local_index = local_index
+            break
+        end
+    end
+    if first_result === nothing
+        _hdf5_write_failures(shard_path, failures)
+        error("All $(length(sample_indices)) samples failed in $(basename(shard_path))")
+    end
+
     file = nothing
     datasets = nothing
     valid_dataset = nothing
@@ -87,14 +138,20 @@ function _hdf5_run_shard(training_matrix, parameter_names, sample_indices, shard
             file, datasets = _hdf5_create_shard(shard_path, training_matrix,
                 parameter_names, sample_indices, first_result)
             valid_dataset = file["valid"]
-            _hdf5_write_result!(file, datasets, valid_dataset, 1, first_result)
+            _hdf5_write_result!(
+                file, datasets, valid_dataset, first_local_index, first_result,
+            )
         finally
             unlock(io_lock)
         end
 
-        for (offset, sample_index) in enumerate(sample_indices[2:end])
-            local_index = offset + 1
-            result = compute_func(create_training_dict(training_matrix, sample_index, parameter_names))
+        for local_index in (first_local_index + 1):length(sample_indices)
+            sample_index = sample_indices[local_index]
+            parameters = create_training_dict(training_matrix, sample_index, parameter_names)
+            result = _hdf5_compute_or_record(
+                compute_func, parameters, sample_index, failures, skip_errors,
+            )
+            result === nothing && continue
             lock(io_lock)
             try
                 _hdf5_write_result!(file, datasets, valid_dataset, local_index, result)
@@ -111,6 +168,7 @@ function _hdf5_run_shard(training_matrix, parameter_names, sample_indices, shard
                 unlock(io_lock)
             end
         end
+        _hdf5_write_failures(shard_path, failures)
     end
     return shard_path
 end
@@ -120,6 +178,98 @@ function _hdf5_shard_files(shard_dir)
     isempty(files) && throw(ArgumentError("No HDF5 shards found in $shard_dir"))
     sort!(files)
     return files
+end
+
+function _hdf5_contiguous_runs(indices::Vector{Int})
+    isempty(indices) && return UnitRange{Int}[]
+    runs = UnitRange{Int}[]
+    first_index = indices[1]
+    previous_index = first_index
+    for index in indices[2:end]
+        if index != previous_index + 1
+            push!(runs, first_index:previous_index)
+            first_index = index
+        end
+        previous_index = index
+    end
+    push!(runs, first_index:previous_index)
+    return runs
+end
+
+function _hdf5_copy_sample_runs!(destination, source, runs)
+    destination_start = 1
+    trailing_indices = ntuple(_ -> Colon(), ndims(source) - 1)
+    for source_range in runs
+        destination_range = destination_start:(destination_start + length(source_range) - 1)
+        destination[(destination_range, trailing_indices...)...] =
+            source[(source_range, trailing_indices...)...]
+        destination_start += length(source_range)
+    end
+    return nothing
+end
+
+function _hdf5_compact_valid_samples!(path)
+    tmp_path = path * ".compact.tmp"
+    isfile(tmp_path) && rm(tmp_path)
+    n_valid = 0
+    n_total = 0
+    h5open(path, "r") do source
+        valid = Bool.(source["valid"][:])
+        n_total = length(valid)
+        valid_indices = findall(valid)
+        n_valid = length(valid_indices)
+        n_valid > 0 || error("Every generated sample failed")
+        n_valid == n_total && return nothing
+        runs = _hdf5_contiguous_runs(valid_indices)
+
+        h5open(tmp_path, "w") do destination
+            destination["parameter_names"] = String.(source["parameter_names"][:])
+            destination["sample_indices"] = Int.(source["sample_indices"][:])[valid_indices]
+            destination["valid"] = Bool[true for _ in 1:n_valid]
+
+            source_parameters = source["parameters"]
+            destination_parameters = create_dataset(
+                destination, "parameters", datatype(eltype(source_parameters)),
+                dataspace((n_valid, size(source_parameters, 2))),
+            )
+            _hdf5_copy_sample_runs!(destination_parameters, source_parameters, runs)
+
+            destination_observables = create_group(destination, "observables")
+            for name in keys(source["observables"])
+                source_dataset = source["observables/$name"]
+                destination_dataset = create_dataset(
+                    destination_observables, name, datatype(eltype(source_dataset)),
+                    dataspace((n_valid, size(source_dataset)[2:end]...)),
+                )
+                _hdf5_copy_sample_runs!(destination_dataset, source_dataset, runs)
+            end
+        end
+    end
+    if n_valid < n_total
+        mv(tmp_path, path; force=true)
+    end
+    return (retained=n_valid, rejected=n_total - n_valid)
+end
+
+function _hdf5_collect_failures(shard_dir, output_path)
+    paths = sort(filter(
+        path -> endswith(path, "_failures.json"),
+        readdir(shard_dir; join=true),
+    ))
+    records = Dict{String,Any}[]
+    for path in paths
+        for record in JSON3.read(read(path, String))
+            push!(records, Dict{String,Any}(
+                "sample_index" => Int(record["sample_index"]),
+                "error" => String(record["error"]),
+            ))
+        end
+    end
+    sort!(records; by=record -> Int(record["sample_index"]))
+    open(output_path, "w") do stream
+        JSON3.write(stream, records)
+    end
+    return records
 end
 
 """Merge HDF5 shards into a single immutable dataset file."""
@@ -219,7 +369,8 @@ end
 function compute_dataset_hdf5(training_matrix::AbstractMatrix, parameter_names::AbstractVector{<:AbstractString},
                               root_dir::AbstractString, compute_func::Function;
                               mode::Symbol=:serial, force::Bool=false,
-                              static_arrays::Union{Nothing,NamedTuple}=nothing)
+                              static_arrays::Union{Nothing,NamedTuple}=nothing,
+                              skip_errors::Bool=false)
     validate_compute_inputs(training_matrix, parameter_names)
     mode in (:serial, :threads, :distributed) ||
         throw(ArgumentError("Invalid mode: $mode. Use :serial, :threads, or :distributed"))
@@ -235,21 +386,32 @@ function compute_dataset_hdf5(training_matrix::AbstractMatrix, parameter_names::
     shard_paths = [joinpath(shard_dir, "shard_$(lpad(i, 4, '0')).h5") for i in 1:n_shards]
 
     if mode == :serial
-        _hdf5_run_shard(training_matrix, parameter_names, ranges[1], shard_paths[1], compute_func, _HDF5_IO_LOCK)
+        _hdf5_run_shard(
+            training_matrix, parameter_names, ranges[1], shard_paths[1],
+            compute_func, _HDF5_IO_LOCK, skip_errors,
+        )
     elseif mode == :threads
         Threads.@threads for shard_index in eachindex(ranges)
             _hdf5_run_shard(training_matrix, parameter_names, ranges[shard_index],
-                            shard_paths[shard_index], compute_func, _HDF5_IO_LOCK)
+                            shard_paths[shard_index], compute_func, _HDF5_IO_LOCK,
+                            skip_errors)
         end
     else
         @sync @distributed for shard_index in eachindex(ranges)
             _hdf5_run_shard(training_matrix, parameter_names, ranges[shard_index],
-                            shard_paths[shard_index], compute_func, _HDF5_IO_LOCK)
+                            shard_paths[shard_index], compute_func, _HDF5_IO_LOCK,
+                            skip_errors)
         end
     end
 
     output_file = joinpath(actual_dir, "dataset.h5")
     merge_hdf5_shards(shard_dir, output_file; n_samples=n_samples, force=true)
+    if skip_errors
+        _hdf5_compact_valid_samples!(output_file)
+        _hdf5_collect_failures(
+            shard_dir, joinpath(actual_dir, "generation_failures.json"),
+        )
+    end
     if static_arrays !== nothing
         h5open(output_file, "r+") do file
             axes_group = create_group(file, "axes")

@@ -217,6 +217,10 @@ println("Median relative error: ", results[2, :])
 - `get_minmax_out(array_out)`: Get min/max values for output features with automatic detection
 - `getdata(df; test_fraction=0.2, seed=nothing)`: Split into train/test sets, optionally reproducibly
 
+`compute_dataset_hdf5(...; skip_errors=true)` rejects exceptions from individual
+sample calculations, writes `generation_failures.json`, and compacts the merged
+dataset to successful samples while retaining original `sample_indices`.
+
 ### Neural-network training
 
 - `SimpleChainsTrainingConfig`: Learning-rate schedule and batch configuration
