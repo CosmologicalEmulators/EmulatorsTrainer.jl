@@ -67,8 +67,7 @@ using Statistics
                 return (cosmo_pars["param1"], cosmo_pars["param2"], obs)
             end
             
-            # Test with NaN data - should warn and not add to DataFrame
-            @test_logs (:warn, r"File with NaN at") EmulatorsTrainer.add_observable_df!(
+            @test_throws ArgumentError EmulatorsTrainer.add_observable_df!(
                 df, test_dir * "/", "nan_params.json", "nan_obs.npy", 1, 4, test_get_tuple)
             
             # DataFrame should remain empty due to NaN values
@@ -107,6 +106,56 @@ using Statistics
             
             rm(test_dir, recursive=true)
         end
+    end
+
+    @testset "load_df_directory!" begin
+        test_dir = mktempdir()
+        for (name, value) in (("sample_b", 2.0), ("sample_a", 1.0))
+            directory = joinpath(test_dir, name)
+            mkdir(directory)
+            open(joinpath(directory, "params.json"), "w") do stream
+                JSON3.write(stream, Dict("x" => value))
+            end
+            open(joinpath(directory, "metadata.json"), "w") do stream
+                JSON3.write(stream, Dict("ignored" => true))
+            end
+            npzwrite(joinpath(directory, "observable.npy"), [value, value + 1])
+        end
+        invalid = joinpath(test_dir, "sample_invalid")
+        mkdir(invalid)
+        open(joinpath(invalid, "params.json"), "w") do stream
+            JSON3.write(stream, Dict("x" => 3.0))
+        end
+        npzwrite(joinpath(invalid, "observable.npy"), [3.0, Inf])
+
+        df = DataFrame(x=Float64[], observable=Vector{Float64}[])
+        get_tuple(parameters, observable) = (parameters["x"], observable)
+        add!(frame, directory) = EmulatorsTrainer.add_observable_df!(
+            frame, directory, "params.json", "observable.npy", get_tuple,
+        )
+        report = @test_logs (:warn, r"Skipping invalid sample directory") EmulatorsTrainer.load_df_directory!(
+            df, test_dir, "params.json", add!,
+        )
+        @test report.discovered == 3
+        @test report.loaded == 2
+        @test report.skipped == 1
+        @test length(report.failures) == 1
+        @test df.x == [1.0, 2.0]
+
+        strict_df = DataFrame(x=Float64[], observable=Vector{Float64}[])
+        @test_throws ArgumentError EmulatorsTrainer.load_df_directory!(
+            strict_df, test_dir, "params.json", add!; skip_invalid=false,
+        )
+        validator = (_, observable, _) -> all(observable .< 2)
+        @test_throws ArgumentError EmulatorsTrainer.add_observable_df!(
+            DataFrame(x=Float64[], observable=Vector{Float64}[]),
+            joinpath(test_dir, "sample_a"),
+            "params.json",
+            "observable.npy",
+            get_tuple;
+            validate_observable=validator,
+        )
+        rm(test_dir; recursive=true)
     end
     
     @testset "extract_input_output_df" begin
@@ -179,6 +228,18 @@ using Statistics
             @test input_array == [5.0; 10.0;;]
             @test output_array == [100.0; 200.0; 300.0;;]
         end
+
+        @testset "Explicit columns and observable position" begin
+            df = DataFrame(a=[1.0, 2.0], observable=[[10.0], [20.0]], b=[3.0, 4.0])
+            input, output = EmulatorsTrainer.extract_input_output_df(
+                df; input_columns=[:b, :a],
+            )
+            @test input == [3.0 4.0; 1.0 2.0]
+            @test output == [10.0 20.0]
+            @test_throws ArgumentError EmulatorsTrainer.extract_input_output_df(
+                df; input_columns=[:observable, :a],
+            )
+        end
         
         @testset "Realistic cosmological parameters" begin
             # Test with realistic cosmological parameters
@@ -209,6 +270,33 @@ using Statistics
             @test input_array[1, 1] == 2.1  # ln10A_s first sample
             @test input_array[9, 3] == 0.2  # wa last sample
         end
+    end
+
+    @testset "maximin_df!" begin
+        df = DataFrame(
+            b=[10.0, 20.0],
+            observable=[[2.0, 4.0], [4.0, 8.0]],
+            a=[1.0, 3.0],
+        )
+        input_columns = [:a, :b]
+        input_limits = EmulatorsTrainer.get_minmax_in(df, input_columns)
+        _, output = EmulatorsTrainer.extract_input_output_df(df; input_columns)
+        output_limits = EmulatorsTrainer.get_minmax_out(output)
+        EmulatorsTrainer.maximin_df!(
+            df, input_limits, output_limits; input_columns,
+        )
+        @test df.a == [0.0, 1.0]
+        @test df.b == [0.0, 1.0]
+        @test df.observable == [[0.0, 0.0], [1.0, 1.0]]
+
+        constant_input = DataFrame(a=[1.0, 1.0], observable=[[1.0], [2.0]])
+        @test_throws ArgumentError EmulatorsTrainer.maximin_df!(
+            constant_input, [1.0 1.0], [1.0 2.0]; input_columns=[:a],
+        )
+        constant_output = DataFrame(a=[1.0, 2.0], observable=[[1.0], [1.0]])
+        @test_throws ArgumentError EmulatorsTrainer.maximin_df!(
+            constant_output, [1.0 2.0], [1.0 1.0]; input_columns=[:a],
+        )
     end
     
     @testset "get_minmax_in" begin
@@ -363,6 +451,16 @@ using Statistics
             @test df1_first.a != df1_second.a  # Different ordering expected
             @test nrow(df1_first) == nrow(df1_second) == 30  # Same size
         end
+
+        @testset "Seeded reproducibility" begin
+            df = DataFrame(a=1:100)
+            first_a, first_b = EmulatorsTrainer.splitdf(df, 0.3; seed=42)
+            second_a, second_b = EmulatorsTrainer.splitdf(df, 0.3; seed=42)
+            different_a, _ = EmulatorsTrainer.splitdf(df, 0.3; seed=43)
+            @test first_a.a == second_a.a
+            @test first_b.a == second_b.a
+            @test first_a.a != different_a.a
+        end
         
         @testset "Views functionality" begin
             df = DataFrame(a=1:5, b=6:10)
@@ -449,32 +547,22 @@ using Statistics
             @test n_test in [1, 2]
         end
         
-        @testset "Environment variable setting" begin
-            # Save original value
+        @testset "No environment mutation and saved indices" begin
             original_value = get(ENV, "DATADEPS_ALWAYS_ACCEPT", nothing)
-            
-            # Remove the environment variable if it exists
             if haskey(ENV, "DATADEPS_ALWAYS_ACCEPT")
                 delete!(ENV, "DATADEPS_ALWAYS_ACCEPT")
             end
-            
-            # Use larger dataset to ensure train/test split doesn't result in empty DataFrames
             df = DataFrame(
                 x=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
                 observable=[[10.0], [20.0], [30.0], [40.0], [50.0], [60.0]]
             )
-            
-            # Call getdata
-            EmulatorsTrainer.getdata(df)
-            
-            # Check that environment variable was set
-            @test ENV["DATADEPS_ALWAYS_ACCEPT"] == "true"
-            
-            # Restore original value
+            first = EmulatorsTrainer.getdata(df; seed=123, return_indices=true)
+            second = EmulatorsTrainer.getdata(df; seed=123, return_indices=true)
+            @test first[5] == second[5]
+            @test first[6] == second[6]
+            @test !haskey(ENV, "DATADEPS_ALWAYS_ACCEPT")
             if original_value !== nothing
                 ENV["DATADEPS_ALWAYS_ACCEPT"] = original_value
-            else
-                delete!(ENV, "DATADEPS_ALWAYS_ACCEPT")
             end
         end
     end

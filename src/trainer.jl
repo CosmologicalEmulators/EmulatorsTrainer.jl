@@ -1,8 +1,48 @@
+"""A sample directory and the reason it was skipped while loading a dataset."""
+struct DatasetLoadFailure
+    directory::String
+    message::String
+end
+
+"""Counts and failure details returned by `load_df_directory!`."""
+struct DatasetLoadReport
+    discovered::Int
+    loaded::Int
+    skipped::Int
+    failures::Vector{DatasetLoadFailure}
+end
+
+_dataset_path(location, filename) = joinpath(location, lstrip(filename, ('/', '\\')))
+
+function _read_observable(location, param_file, observable_file; first_idx=nothing,
+    last_idx=nothing, validate_observable=nothing)
+    parameter_path = _dataset_path(location, param_file)
+    observable_path = _dataset_path(location, observable_file)
+    isfile(parameter_path) || throw(ArgumentError("Parameter file does not exist: $parameter_path"))
+    isfile(observable_path) || throw(ArgumentError("Observable file does not exist: $observable_path"))
+
+    cosmo_pars = JSON3.read(read(parameter_path, String))
+    observable = npzread(observable_path)
+    if first_idx !== nothing
+        checkbounds(Bool, observable, first_idx:last_idx) ||
+            throw(ArgumentError("Observable slice $first_idx:$last_idx is outside $(axes(observable, 1))"))
+        observable = observable[first_idx:last_idx]
+    end
+    isempty(observable) && throw(ArgumentError("Observable is empty: $observable_path"))
+    all(isfinite, observable) || throw(ArgumentError("Observable contains NaN or Inf: $observable_path"))
+    if validate_observable !== nothing
+        valid = validate_observable(cosmo_pars, observable, location)
+        valid === false && throw(ArgumentError("Observable failed domain-specific validation: $observable_path"))
+    end
+    return cosmo_pars, observable
+end
+
 """
     add_observable_df!(df::DataFrame, location::String, param_file::String,
                       observable_file::String, first_idx::Int, last_idx::Int, get_tuple::Function)
 
-Add observation slice to DataFrame with NaN checking.
+Add an observation slice to a DataFrame after checking file existence, bounds,
+and finite values. An optional callback performs domain-specific validation.
 
 # Arguments
 - `df::DataFrame`: Target DataFrame
@@ -14,27 +54,22 @@ Add observation slice to DataFrame with NaN checking.
 - `get_tuple::Function`: Function to process (params, observable) into tuple
 """
 function add_observable_df!(df::DataFrames.DataFrame, location::String, param_file::String,
-    observable_file::String, first_idx::Int, last_idx::Int, get_tuple::Function)
-    json_string = read(location * param_file, String)
-    cosmo_pars = JSON3.read(json_string)
-
-    observable = npzread(location * observable_file, "r")[first_idx:last_idx]
-
-    if !any(isnan.(observable))
-        processed_observable = get_tuple(cosmo_pars, observable)
-        push!(df, processed_observable)
-    else
-        @warn "File with NaN at " * location
-    end
-
-    return nothing
+    observable_file::String, first_idx::Int, last_idx::Int, get_tuple::Function;
+    validate_observable=nothing)
+    cosmo_pars, observable = _read_observable(
+        location, param_file, observable_file;
+        first_idx, last_idx, validate_observable,
+    )
+    processed_observable = get_tuple(cosmo_pars, observable)
+    push!(df, processed_observable)
+    return true
 end
 
 """
     add_observable_df!(df::DataFrame, location::String, param_file::String,
                       observable_file::String, get_tuple::Function)
 
-Add complete observation to DataFrame with NaN checking.
+Add a complete observation to a DataFrame after generic integrity validation.
 
 # Arguments
 - `df::DataFrame`: Target DataFrame
@@ -44,101 +79,119 @@ Add complete observation to DataFrame with NaN checking.
 - `get_tuple::Function`: Function to process (params, observable) into tuple
 """
 function add_observable_df!(df::DataFrames.DataFrame, location::String, param_file::String,
-    observable_file::String, get_tuple::Function)
-    json_string = read(location * param_file, String)
-    cosmo_pars = JSON3.read(json_string)
-
-    observable = npzread(location * observable_file, "r")
-    
-    if !any(isnan.(observable))
-        processed_observable = get_tuple(cosmo_pars, observable)
-        push!(df, processed_observable)
-    else
-        @warn "File with NaN at " * location
-    end
-    
-    return nothing
+    observable_file::String, get_tuple::Function; validate_observable=nothing)
+    cosmo_pars, observable = _read_observable(
+        location, param_file, observable_file; validate_observable,
+    )
+    processed_observable = get_tuple(cosmo_pars, observable)
+    push!(df, processed_observable)
+    return true
 end
 
 """
-    load_df_directory!(df::DataFrame, Directory::String, add_observable_function::Function)
+    load_df_directory!(df, directory, parameter_file, add_observable_function;
+                       skip_invalid=true)
 
-Recursively load all observations from directory into DataFrame.
+Load each sample directory containing the exact parameter filename once. Invalid
+samples are skipped by default and recorded in the returned `DatasetLoadReport`.
 
 # Arguments
 - `df::DataFrame`: Target DataFrame
 - `Directory::String`: Root directory to search
-- `add_observable_function::Function`: Function to add each observation
+- `parameter_file`: Exact marker filename identifying a sample directory
+- `add_observable_function`: Function to add one sample to the DataFrame
 """
 function load_df_directory!(df::DataFrames.DataFrame, Directory::String,
-    add_observable_function::Function)
+    parameter_file::AbstractString, add_observable_function::Function; skip_invalid::Bool=true)
     if !isdir(Directory)
         throw(ArgumentError("Directory does not exist: $Directory"))
     end
 
+    discovered = 0
+    loaded = 0
+    failures = DatasetLoadFailure[]
     for (root, dirs, files) in walkdir(Directory)
-        for file in files
-            if endswith(file, ".json")
-                # Call the add_observable function with the root directory
-                # Note: The actual function signature depends on which add_observable_df! variant is used
-                add_observable_function(df, root * "/")
+        sort!(dirs)
+        sort!(files)
+        if parameter_file in files
+            discovered += 1
+            try
+                result = add_observable_function(df, root)
+                if result === false
+                    push!(failures, DatasetLoadFailure(root, "observation loader rejected sample"))
+                else
+                    loaded += 1
+                end
+            catch error
+                skip_invalid || rethrow()
+                message = sprint(showerror, error)
+                push!(failures, DatasetLoadFailure(root, message))
+                @warn "Skipping invalid sample directory" root exception=(error, catch_backtrace())
             end
         end
     end
+    return DatasetLoadReport(discovered, loaded, discovered - loaded, failures)
 end
 
 """
-    extract_input_output_df(df::AbstractDataFrame)
+    extract_input_output_df(df; input_columns=nothing, observable_column=:observable)
 
 Automatically detect and extract input and output features from a DataFrame.
-Assumes the last column named "observable" contains the output arrays and all other columns are input features.
+The observable column may appear anywhere. Input columns can be given explicitly
+to guarantee their order; otherwise every column except the observable is used.
 
 # Returns
 - `array_input::Matrix{Float64}`: Input features matrix (n_input_features × n_samples)
 - `array_output::Matrix{Float64}`: Output features matrix (n_output_features × n_samples)
 """
-function extract_input_output_df(df::AbstractDataFrame)
+function extract_input_output_df(df::AbstractDataFrame; input_columns=nothing,
+    observable_column::Symbol=:observable)
     # Input validation
     if nrow(df) == 0
         throw(ArgumentError("DataFrame cannot be empty"))
     end
     
-    if !hasproperty(df, :observable)
-        throw(ArgumentError("DataFrame must have an 'observable' column"))
+    if !hasproperty(df, observable_column)
+        throw(ArgumentError("DataFrame must have an '$observable_column' column"))
     end
-    
-    # Auto-detect dimensions
-    n_input_features = ncol(df) - 1  # All columns except "observable"
+
+    columns = if input_columns === nothing
+        filter(!=(observable_column), propertynames(df))
+    else
+        Symbol.(input_columns)
+    end
+    isempty(columns) && throw(ArgumentError("At least one input feature column is required"))
+    length(unique(columns)) == length(columns) || throw(ArgumentError("Input columns must be unique"))
+    observable_column in columns && throw(ArgumentError("Observable column cannot also be an input column"))
+    for column in columns
+        hasproperty(df, column) || throw(ArgumentError("Input column '$column' not found"))
+        all(value -> value isa Real && isfinite(value), df[!, column]) ||
+            throw(ArgumentError("Input column '$column' must contain finite Real values"))
+    end
+
+    n_input_features = length(columns)
     n_samples = nrow(df)
-    
-    # Get n_output_features from the first observable
-    first_observable = df.observable[1]
+    observable_col = df[!, observable_column]
+    first_observable = observable_col[1]
     n_output_features = length(first_observable)
     
     if n_output_features == 0
         throw(ArgumentError("Observable arrays cannot be empty"))
     end
     
-    if n_input_features <= 0
-        throw(ArgumentError("DataFrame must have at least one input feature column besides 'observable'"))
-    end
-
-    # Extract input features with proper typing
     array_input = Matrix{Float64}(undef, n_input_features, n_samples)
-    for i in 1:n_input_features
-        array_input[i, :] = df[!, i]  # More efficient column-wise access
+    for (index, column) in enumerate(columns)
+        array_input[index, :] = df[!, column]
     end
 
-    # Extract output features (observables) with proper typing
     array_output = Matrix{Float64}(undef, n_output_features, n_samples)
-    observable_col = df[!, "observable"]  # Assumes column named "observable"
-
-    # Vectorized extraction of observables
     for i in 1:n_samples
         obs = observable_col[i]
         if length(obs) != n_output_features
             throw(ArgumentError("Observable at row $i has wrong size: expected $n_output_features, got $(length(obs))"))
         end
+        all(value -> value isa Real && isfinite(value), obs) ||
+            throw(ArgumentError("Observable at row $i must contain finite Real values"))
         array_output[:, i] = obs
     end
 
@@ -157,14 +210,15 @@ Compute min/max values for specified input features.
 # Returns
 - `Matrix{Float64}`: Shape (n_params, 2) with [min, max] for each parameter
 """
-function get_minmax_in(df::DataFrames.DataFrame, array_pars_in::AbstractVector{<:AbstractString})
+function get_minmax_in(df::AbstractDataFrame, array_pars_in::AbstractVector)
     n_params = length(array_pars_in)
     if n_params == 0
         throw(ArgumentError("Parameter list cannot be empty"))
     end
 
     in_MinMax = Matrix{Float64}(undef, n_params, 2)
-    for (idx, key) in enumerate(array_pars_in)
+    for (idx, raw_key) in enumerate(array_pars_in)
+        key = Symbol(raw_key)
         if !hasproperty(df, key)
             throw(ArgumentError("Column '$key' not found in DataFrame"))
         end
@@ -210,7 +264,8 @@ function get_minmax_out(array_out::AbstractMatrix{<:Real})
 end
 
 """
-    maximin_df!(df, in_MinMax, out_MinMax)
+    maximin_df!(df, in_MinMax, out_MinMax; input_columns,
+                observable_column=:observable)
 
 Normalize DataFrame features to [0, 1] range in-place.
 
@@ -219,49 +274,68 @@ Normalize DataFrame features to [0, 1] range in-place.
 - `in_MinMax`: Min/max values for input features
 - `out_MinMax`: Min/max values for output features
 """
-function maximin_df!(df, in_MinMax, out_MinMax)
-    n_input_features, _ = size(in_MinMax)
-    for i in 1:n_input_features
-        df[!, i] .-= in_MinMax[i, 1]
-        df[!, i] ./= (in_MinMax[i, 2] - in_MinMax[i, 1])
+function maximin_df!(df::AbstractDataFrame, in_MinMax::AbstractMatrix,
+    out_MinMax::AbstractMatrix; input_columns, observable_column::Symbol=:observable)
+    columns = Symbol.(input_columns)
+    size(in_MinMax) == (length(columns), 2) ||
+        throw(ArgumentError("Input min-max shape must be ($(length(columns)), 2)"))
+    hasproperty(df, observable_column) || throw(ArgumentError("Observable column '$observable_column' not found"))
+    input_widths = in_MinMax[:, 2] .- in_MinMax[:, 1]
+    output_widths = out_MinMax[:, 2] .- out_MinMax[:, 1]
+    constant_inputs = findall(iszero, input_widths)
+    constant_outputs = findall(iszero, output_widths)
+    isempty(constant_inputs) || throw(ArgumentError("Cannot normalize constant input features at indices $constant_inputs"))
+    isempty(constant_outputs) || throw(ArgumentError("Cannot normalize constant output features at indices $constant_outputs"))
+
+    for (i, column) in enumerate(columns)
+        hasproperty(df, column) || throw(ArgumentError("Input column '$column' not found"))
+        df[!, column] .-= in_MinMax[i, 1]
+        df[!, column] ./= input_widths[i]
     end
     for i in 1:nrow(df)
-        df[!, "observable"][i] .-= out_MinMax[:, 1]
-        df[!, "observable"][i] ./= (out_MinMax[:, 2] - out_MinMax[:, 1])
+        length(df[!, observable_column][i]) == size(out_MinMax, 1) ||
+            throw(ArgumentError("Observable at row $i does not match output min-max dimensions"))
+        df[!, observable_column][i] .-= out_MinMax[:, 1]
+        df[!, observable_column][i] ./= output_widths
     end
+    return df
 end
 
 """
-    splitdf(df::DataFrame, pct::Float64)
+    split_indices(n_rows, pct; seed=nothing)
 
-Randomly split DataFrame into two parts.
+Construct randomized index vectors for a two-way split.
 
 # Arguments
-- `df::DataFrame`: DataFrame to split
-- `pct::Float64`: Fraction for first split (0 to 1)
+- `n_rows`: Number of rows to split
+- `pct`: Fraction for first split (0 to 1)
+- `seed`: Optional local random seed for reproducible indices
 
 # Returns
-- `(DataFrame, DataFrame)`: Two views of the split data
+- `(first_indices, second_indices)`: Index vectors for both partitions
 """
-function splitdf(df::DataFrames.DataFrame, pct::Float64)
+function split_indices(n_rows::Integer, pct::Real; seed::Union{Nothing,Integer}=nothing)
     if !(0 <= pct <= 1)
         throw(ArgumentError("Split percentage must be between 0 and 1, got $pct"))
     end
-
-    n_rows = nrow(df)
-    if n_rows == 0
+    if n_rows <= 0
         throw(ArgumentError("Cannot split empty DataFrame"))
     end
-
-    # More efficient splitting
     split_idx = round(Int, n_rows * pct)
-    indices = randperm(n_rows)  # More efficient than collect + shuffle
+    rng = isnothing(seed) ? Random.default_rng() : Random.Xoshiro(seed)
+    permutation = randperm(rng, n_rows)
+    return permutation[1:split_idx], permutation[(split_idx + 1):end]
+end
 
-    # Create boolean masks more efficiently
-    mask1 = falses(n_rows)
-    mask1[indices[1:split_idx]] .= true
+"""
+    splitdf(df, pct; seed=nothing)
 
-    return view(df, mask1, :), view(df, .!mask1, :)
+Randomly split a DataFrame into two views. Supplying `seed` uses a local RNG and
+does not mutate global random state.
+"""
+function splitdf(df::DataFrames.DataFrame, pct::Real; seed::Union{Nothing,Integer}=nothing)
+    first_indices, second_indices = split_indices(nrow(df), pct; seed)
+    return view(df, first_indices, :), view(df, second_indices, :)
 end
 
 """
@@ -276,15 +350,17 @@ Split DataFrame into training and test sets.
 # Returns
 - `(train_df, test_df)`: Training and test DataFrames
 """
-function traintest_split(df, test)
-    te, tr = splitdf(df, test)
+function traintest_split(df, test; seed::Union{Nothing,Integer}=nothing)
+    te, tr = splitdf(df, test; seed)
     return tr, te
 end
 
 """
-    getdata(df)
+    getdata(df; test_fraction=0.2, seed=nothing, input_columns=nothing,
+            observable_column=:observable, return_indices=false)
 
-Split DataFrame into train/test sets with automatic dimension detection.
+Split a DataFrame into train/test matrices. Supplying a seed makes the split
+reproducible without mutating the global random generator.
 
 # Arguments
 - `df`: DataFrame with features and observables
@@ -292,13 +368,15 @@ Split DataFrame into train/test sets with automatic dimension detection.
 # Returns
 - `(xtrain, ytrain, xtest, ytest)`: Training and test arrays as Float64
 """
-function getdata(df)
-    ENV["DATADEPS_ALWAYS_ACCEPT"] = "true"
-
-    train_df, test_df = traintest_split(df, 0.2)
-
-    xtrain, ytrain = extract_input_output_df(train_df)
-    xtest, ytest = extract_input_output_df(test_df)
-
-    return Float64.(xtrain), Float64.(ytrain), Float64.(xtest), Float64.(ytest)
+function getdata(df; test_fraction::Real=0.2, seed::Union{Nothing,Integer}=nothing,
+    input_columns=nothing, observable_column::Symbol=:observable, return_indices::Bool=false)
+    test_indices, train_indices = split_indices(nrow(df), test_fraction; seed)
+    isempty(train_indices) && throw(ArgumentError("Training split is empty"))
+    isempty(test_indices) && throw(ArgumentError("Test split is empty"))
+    train_df = view(df, train_indices, :)
+    test_df = view(df, test_indices, :)
+    xtrain, ytrain = extract_input_output_df(train_df; input_columns, observable_column)
+    xtest, ytest = extract_input_output_df(test_df; input_columns, observable_column)
+    data = (Float64.(xtrain), Float64.(ytrain), Float64.(xtest), Float64.(ytest))
+    return return_indices ? (data..., train_indices, test_indices) : data
 end

@@ -94,10 +94,22 @@ end
 add_obs_func = (df, root) -> add_observable_df!(
     df, root, "params.json", "power_spectrum.npy", get_tuple
 )
-load_df_directory!(df, "/path/to/simulations", add_obs_func)
+report = load_df_directory!(
+    df,
+    "/path/to/simulations",
+    "params.json",
+    add_obs_func,
+)
 
 # Extract arrays - dimensions detected automatically!
 X, y = extract_input_output_df(df)
+```
+
+Use an explicit input order for deployable artifacts:
+
+```julia
+input_columns = [:omega_m, :sigma_8, :H0]
+X, y = extract_input_output_df(df; input_columns)
 ```
 
 ### Validating Emulators
@@ -199,11 +211,17 @@ println("Median relative error: ", results[2, :])
 
 - `add_observable_df!(df, location, param_file, obs_file, get_tuple)`: Add single observation with NaN checking
 - `add_observable_df!(df, location, param_file, obs_file, first_idx, last_idx, get_tuple)`: Add observation slice with NaN checking
-- `load_df_directory!(df, dir, add_func)`: Load all observations from directory
+- `load_df_directory!(df, dir, parameter_file, add_func)`: Load each matching sample directory once and return a load report
 - `extract_input_output_df(df)`: Extract training arrays with automatic dimension detection
 - `get_minmax_in(df, params)`: Get min/max values for input features
 - `get_minmax_out(array_out)`: Get min/max values for output features with automatic detection
-- `getdata(df)`: Split DataFrame into train/test sets with automatic dimension detection
+- `getdata(df; test_fraction=0.2, seed=nothing)`: Split into train/test sets, optionally reproducibly
+
+### Neural-network training
+
+- `SimpleChainsTrainingConfig`: Learning-rate schedule and batch configuration
+- `train_simplechains(...)`: Train and retain the best validation checkpoint
+- `save_training_result(...)`: Save weights, complete history, and metadata
 
 ### Validation
 

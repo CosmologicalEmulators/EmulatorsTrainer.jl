@@ -90,7 +90,7 @@ function prepare_dataset_directory(root_dir::String; force::Bool=false)
             backup_dir = root_dir * "_backup_" * timestamp
             @warn "Directory exists. Creating backup before proceeding" existing=root_dir backup=backup_dir
             mv(root_dir, backup_dir)
-            mkdir(root_dir)
+            mkpath(root_dir)
         else
             error("""
                   Dataset directory already exists: $root_dir
@@ -106,7 +106,7 @@ function prepare_dataset_directory(root_dir::String; force::Bool=false)
                   """)
         end
     else
-        mkdir(root_dir)
+        mkpath(root_dir)
     end
 
     # Create metadata file to track dataset generation
@@ -190,7 +190,7 @@ Compute dataset using specified parallelization mode with optional force overrid
 """
 function compute_dataset(training_matrix::AbstractMatrix, params::AbstractVector{<:AbstractString},
                         root_dir::String, script_func::Function,
-                        mode::Symbol; force::Bool=false)
+                        mode::Symbol=:distributed; force::Bool=false)
 
     # Validate inputs
     n_pars, n_combs = validate_compute_inputs(training_matrix, params)

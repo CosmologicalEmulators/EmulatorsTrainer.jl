@@ -14,13 +14,25 @@ compute_dataset
 ```@docs
 add_observable_df!
 load_df_directory!
+DatasetLoadFailure
+DatasetLoadReport
 extract_input_output_df
 get_minmax_in
 get_minmax_out
 maximin_df!
+split_indices
 splitdf
 traintest_split
 getdata
+```
+
+## SimpleChains Training
+
+```@docs
+SimpleChainsTrainingConfig
+SimpleChainsTrainingResult
+train_simplechains
+save_training_result
 ```
 
 ## Validation

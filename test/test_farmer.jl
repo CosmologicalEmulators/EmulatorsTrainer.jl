@@ -256,6 +256,13 @@ using Random
             @test_throws ErrorException EmulatorsTrainer.compute_dataset(
                 training_matrix, params, output_dir, dummy_func, :serial
             )
+
+            default_dir = joinpath(test_dir, "default_distributed")
+            result = EmulatorsTrainer.compute_dataset(
+                training_matrix, params, default_dir, dummy_func
+            )
+            @test result == default_dir
+            @test isdir(default_dir)
         end
         
         @testset "Computation modes" begin
