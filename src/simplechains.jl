@@ -4,7 +4,7 @@ Base.@kwdef struct SimpleChainsTrainingConfig
         7.0e-6, 5.0e-6, 2.0e-6, 1.0e-6, 7.0e-7]
     sessions_per_rate::Int = 10
     steps_per_session::Int = 1_000
-    batch_size::Int = 128
+    batch_size::Int = 256
     initialization_seed::Union{Nothing,Int} = nothing
 end
 
