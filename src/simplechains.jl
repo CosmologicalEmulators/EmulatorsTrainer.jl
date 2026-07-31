@@ -54,9 +54,12 @@ end
 Train a SimpleChains network with a fixed learning-rate schedule, retaining the
 parameters with the smallest validation loss. The callback, when provided, is
 called after each session with a named tuple containing the current progress.
+The checkpoint callback is called once for the initial parameters and whenever
+the validation loss improves, with `(parameters, progress)` arguments.
 """
 function train_simplechains(network, x_train, y_train, x_validation, y_validation;
-    config::SimpleChainsTrainingConfig=SimpleChainsTrainingConfig(), callback=nothing)
+    config::SimpleChainsTrainingConfig=SimpleChainsTrainingConfig(), callback=nothing,
+    checkpoint_callback=nothing)
     _validate_training_config(config)
     _validate_training_arrays(x_train, y_train, x_validation, y_validation)
 
@@ -75,6 +78,17 @@ function train_simplechains(network, x_train, y_train, x_validation, y_validatio
     total_steps = 0
     session = 0
     start_time = time()
+
+    if checkpoint_callback !== nothing
+        checkpoint_callback(best_parameters, (
+            session=0,
+            total_steps=0,
+            learning_rate=NaN,
+            training_loss=Float64(training_loss(x_train, parameters)),
+            validation_loss=best_loss,
+            best_validation_loss=best_loss,
+        ))
+    end
 
     for learning_rate in config.learning_rates
         for _ in 1:config.sessions_per_rate
@@ -99,6 +113,16 @@ function train_simplechains(network, x_train, y_train, x_validation, y_validatio
             if current_validation_loss < best_loss
                 best_loss = current_validation_loss
                 best_parameters .= parameters
+                if checkpoint_callback !== nothing
+                    checkpoint_callback(best_parameters, (;
+                        session,
+                        total_steps,
+                        learning_rate,
+                        training_loss=current_training_loss,
+                        validation_loss=current_validation_loss,
+                        best_validation_loss=best_loss,
+                    ))
+                end
             end
             if callback !== nothing
                 callback((;

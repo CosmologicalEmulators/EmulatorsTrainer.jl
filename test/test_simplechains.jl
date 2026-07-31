@@ -23,15 +23,25 @@ using SimpleChains
     initial_parameters = SimpleChains.init_params(network; rng=Random.Xoshiro(42))
     initial_loss = SimpleChains.add_loss(network, SquaredLoss(y))(x, initial_parameters)
     callback_count = Ref(0)
+    checkpoint_count = Ref(0)
     callback = progress -> begin
         callback_count[] += 1
         @test progress.total_steps > 0
     end
-    result = train_simplechains(network, x, y, x, y; config, callback)
+    checkpoint_callback = (parameters, progress) -> begin
+        checkpoint_count[] += 1
+        @test length(parameters) > 0
+        @test progress.total_steps >= 0
+    end
+    result = train_simplechains(
+        network, x, y, x, y;
+        config, callback, checkpoint_callback,
+    )
     @test result.best_validation_loss < initial_loss
     @test result.total_steps == 300
     @test size(result.history) == (3, 4)
     @test callback_count[] == 3
+    @test checkpoint_count[] >= 1
     @test all(isfinite, result.best_parameters)
 
     output = mktempdir()
