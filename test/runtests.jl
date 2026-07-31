@@ -7,4 +7,5 @@ using EmulatorsTrainer
     include("test_trainer.jl")
     include("test_validator.jl")
     include("test_simplechains.jl")
+    include("test_lux.jl")
 end

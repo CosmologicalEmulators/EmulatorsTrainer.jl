@@ -2,15 +2,19 @@ module EmulatorsTrainer
 
 using DataFrames
 using DataFrames: AbstractDataFrame
+using ADTypes
 using Dates
 using Distributions
 using Distributed
 using HDF5
 using JSON3
+using Lux
 using NPZ
+using Optimisers
 using QuasiMonteCarlo
 using Random
 using SimpleChains
+using Zygote
 
 # Export dataset creation functions
 export create_training_dataset, create_training_dict
@@ -26,6 +30,7 @@ export DatasetLoadFailure, DatasetLoadReport
 # Export neural-network training functions
 export SimpleChainsTrainingConfig, SimpleChainsTrainingResult
 export train_simplechains, save_training_result
+export LuxTrainingConfig, LuxTrainingResult, train_lux
 
 # Export validation functions
 export evaluate_residuals, evaluate_sorted_residuals, sort_residuals
@@ -35,5 +40,6 @@ include("farmer.jl")
 include("hdf5.jl")
 include("validator.jl")
 include("simplechains.jl")
+include("lux.jl")
 
 end # module EmulatorsTrainer
