@@ -196,7 +196,11 @@ function save_training_checkpoint(output_directory::AbstractString,
     metadata_path = joinpath(output_directory, "checkpoint_metadata.json")
     temporary_metadata_path = metadata_path * ".tmp"
     open(temporary_metadata_path, "w") do stream
-        JSON3.write(stream, Dict(string(key) => value for (key, value) in pairs(progress)))
+        metadata = Dict(
+            string(key) => (value isa AbstractFloat && !isfinite(value) ? nothing : value)
+            for (key, value) in pairs(progress)
+        )
+        JSON3.write(stream, metadata)
     end
     mv(temporary_metadata_path, metadata_path; force=true)
     return output_directory

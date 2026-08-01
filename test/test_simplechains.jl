@@ -65,5 +65,15 @@ using SimpleChains
     @test isfile(joinpath(checkpoint_output, "checkpoint_metadata.json"))
     rm(checkpoint_output; recursive=true)
 
+    checkpoint_output = mktempdir()
+    save_training_checkpoint(
+        checkpoint_output,
+        result.best_parameters,
+        (session=0, total_steps=0, learning_rate=NaN, validation_loss=result.best_validation_loss),
+    )
+    metadata = JSON3.read(read(joinpath(checkpoint_output, "checkpoint_metadata.json"), String))
+    @test metadata["learning_rate"] === nothing
+    rm(checkpoint_output; recursive=true)
+
     @test_throws ArgumentError train_simplechains(network, x, y[:, 1:10], x, y; config)
 end
