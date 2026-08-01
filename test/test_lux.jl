@@ -55,5 +55,16 @@ using Random
     @test metadata["batch_size"] == 8
     rm(output; recursive=true)
 
+    checkpoint_output = mktempdir()
+    save_training_checkpoint(
+        checkpoint_output,
+        result.best_parameters,
+        (session=1, total_steps=10, validation_loss=result.best_validation_loss);
+        flatten=true,
+    )
+    @test isfile(joinpath(checkpoint_output, "weights.npy"))
+    @test isfile(joinpath(checkpoint_output, "checkpoint_metadata.json"))
+    rm(checkpoint_output; recursive=true)
+
     @test_throws ArgumentError train_lux(model, x, y[:, 1:10], x, y; config)
 end

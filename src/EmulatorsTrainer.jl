@@ -29,7 +29,7 @@ export DatasetLoadFailure, DatasetLoadReport
 
 # Export neural-network training functions
 export SimpleChainsTrainingConfig, SimpleChainsTrainingResult
-export train_simplechains, save_training_result
+export train_simplechains, save_training_result, save_training_checkpoint
 export LuxTrainingConfig, LuxTrainingResult, train_lux
 
 # Export validation functions

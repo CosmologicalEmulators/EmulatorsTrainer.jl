@@ -55,5 +55,15 @@ using SimpleChains
     @test metadata["best_validation_loss"] == result.best_validation_loss
     rm(output; recursive=true)
 
+    checkpoint_output = mktempdir()
+    save_training_checkpoint(
+        checkpoint_output,
+        result.best_parameters,
+        (session=1, total_steps=100, validation_loss=result.best_validation_loss),
+    )
+    @test isfile(joinpath(checkpoint_output, "weights.npy"))
+    @test isfile(joinpath(checkpoint_output, "checkpoint_metadata.json"))
+    rm(checkpoint_output; recursive=true)
+
     @test_throws ArgumentError train_simplechains(network, x, y[:, 1:10], x, y; config)
 end

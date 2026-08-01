@@ -183,3 +183,21 @@ function save_training_result(output_directory::AbstractString,
     end
     return output_directory
 end
+
+"""Save the current best SimpleChains weights and checkpoint progress."""
+function save_training_checkpoint(output_directory::AbstractString,
+    parameters, progress::NamedTuple; flatten::Bool=false)
+    mkpath(output_directory)
+    checkpoint_parameters = flatten ? _flatten_lux_parameters(parameters) : parameters
+    weights_path = joinpath(output_directory, "weights.npy")
+    temporary_weights_path = weights_path * ".tmp"
+    npzwrite(temporary_weights_path, checkpoint_parameters)
+    mv(temporary_weights_path, weights_path; force=true)
+    metadata_path = joinpath(output_directory, "checkpoint_metadata.json")
+    temporary_metadata_path = metadata_path * ".tmp"
+    open(temporary_metadata_path, "w") do stream
+        JSON3.write(stream, Dict(string(key) => value for (key, value) in pairs(progress)))
+    end
+    mv(temporary_metadata_path, metadata_path; force=true)
+    return output_directory
+end
