@@ -306,6 +306,11 @@ function merge_hdf5_shards(shard_dir::AbstractString, output_file::AbstractStrin
 
     seen = falses(total_samples)
     final_file = h5open(tmp_file, "w")
+    final_parameters = nothing
+    final_indices = nothing
+    final_valid = nothing
+    observables = nothing
+    final_datasets = Dict{Symbol,Any}()
     try
         final_file["parameter_names"] = parameter_names
         final_parameters = create_dataset(final_file, "parameters", datatype(Float64), dataspace(total_samples, n_parameters))
@@ -313,7 +318,6 @@ function merge_hdf5_shards(shard_dir::AbstractString, output_file::AbstractStrin
         final_valid = create_dataset(final_file, "valid", datatype(Bool), dataspace((total_samples,)))
         final_valid[1:total_samples] = Bool[false for _ in 1:total_samples]
         observables = create_group(final_file, "observables")
-        final_datasets = Dict{Symbol,Any}()
         for name in observable_names
             final_datasets[name] = create_dataset(observables, String(name), datatype(observable_types[name]),
                 dataspace((total_samples, observable_shapes[name]...) ))
@@ -360,6 +364,16 @@ function merge_hdf5_shards(shard_dir::AbstractString, output_file::AbstractStrin
         all(seen) || error("HDF5 shards do not cover all samples: missing $(count(!, seen))")
         flush(final_file)
     finally
+        # Close child objects before the parent file. Leaving these handles to
+        # Julia's finalizer can make HDF5 segfault during shutdown for large
+        # merged datasets (notably after 500k-sample merges).
+        for dataset in values(final_datasets)
+            close(dataset)
+        end
+        observables !== nothing && close(observables)
+        final_valid !== nothing && close(final_valid)
+        final_indices !== nothing && close(final_indices)
+        final_parameters !== nothing && close(final_parameters)
         close(final_file)
     end
     mv(tmp_file, output_file; force=true)
